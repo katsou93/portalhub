@@ -434,19 +434,32 @@ export default function App() {
 
   // Vincere laden
   useEffect(() => {
-    fetchVincereCompanies().then(data => {
-      if (!data) return;
-      setVincereConnected(true);
-      const names = (data.result || data.results || []).map(c => c.name || '').filter(Boolean);
-      setVincereNames(names);
-    });
-    // Check URL params for Vincere status
+    // 1. Check URL params first
     const params = new URLSearchParams(window.location.search);
     const crm = params.get('crm');
     if (crm === 'connected') {
       window.history.replaceState({}, '', '/');
-      setActivities(a => [{ id: Date.now(), type: 'crm', text: 'Vincere CRM verbunden', time: new Date().toLocaleTimeString('de-DE', { hour:'2-digit', minute:'2-digit' }), col: C.green }, ...a]);
+      setVincereConnected(true);
+      setActivities(a => [{ id: Date.now(), type: 'crm', text: 'Vincere CRM verbunden ✓', time: new Date().toLocaleTimeString('de-DE', { hour:'2-digit', minute:'2-digit' }), col: C.green }, ...a]);
     }
+    if (crm === 'token_error' || crm === 'error') {
+      window.history.replaceState({}, '', '/');
+    }
+
+    // 2. Check cookie (vincere_status=connected)
+    const cookies = Object.fromEntries(document.cookie.split(';').map(c => c.trim().split('=').map(s=>s.trim())));
+    if (cookies.vincere_status === 'connected' || crm === 'connected') {
+      setVincereConnected(true);
+    }
+
+    // 3. Load companies from API
+    fetchVincereCompanies().then(data => {
+      if (!data) return;
+      setVincereConnected(true);
+      const items = data.result || data.results || data.items || [];
+      const names = items.map(c => c.name || '').filter(Boolean);
+      setVincereNames(names);
+    }).catch(() => {});
   }, []);
 
   const handleAddVincere = async (companyName) => {
