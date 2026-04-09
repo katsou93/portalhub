@@ -4,27 +4,24 @@ export default async function handler(req, res) {
   if (req.method === 'OPTIONS') return res.status(200).end();
 
   const { code, error } = req.query;
+  if (error) return res.redirect('/?crm=error&reason=' + encodeURIComponent(error));
+  if (!code) return res.status(400).json({ error: 'No authorization code received' });
 
-  if (error) {
-    return res.redirect('/?crm=error&reason=' + encodeURIComponent(error));
-  }
-  if (!code) {
-    return res.status(400).json({ error: 'No authorization code received' });
-  }
-
-  const domain = process.env.VINCERE_DOMAIN;
-  const clientId = process.env.VINCERE_CLIENT_ID;
-  const apiKey = process.env.VINCERE_API_KEY;
+  const tenant    = process.env.VINCERE_TENANT;
+  const clientId  = process.env.VINCERE_CLIENT_ID;
+  const apiKey    = process.env.VINCERE_API_KEY;
+  const appId     = process.env.VINCERE_APP_ID;
   const redirectUri = process.env.VINCERE_REDIRECT_URI || 'https://portalhub3.vercel.app/api/vincere/callback';
 
   try {
-    const tokenRes = await fetch(`https://${domain}.vincere.io/oauth2/token`, {
+    // Token tauschen
+    const tokenRes = await fetch(`https://${tenant}.vincere.io/oauth2/token`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
       body: new URLSearchParams({
-        grant_type: 'authorization_code',
+        grant_type:   'authorization_code',
         code,
-        client_id: clientId,
+        client_id:    clientId,
         redirect_uri: redirectUri,
       }).toString()
     });
@@ -37,11 +34,20 @@ export default async function handler(req, res) {
 
     const idToken = tokenData.id_token || tokenData.access_token;
 
-    const testRes = await fetch(`https://${domain}.vincere.io/api/v2/company/find?query=*&limit=1`, {
-      headers: { 'id-token': idToken, 'x-api-key': apiKey }
+    // API-Verbindung testen
+    const testRes = await fetch(`https://${tenant}.vincere.io/api/v2/company/find?query=*&limit=1`, {
+      headers: {
+        'id-token':  idToken,
+        'x-api-key': apiKey,
+        ...(appId ? { 'app-id': appId } : {})
+      }
     });
 
     const status = testRes.ok ? 'connected' : 'token_error';
+    if (!testRes.ok) {
+      const errBody = await testRes.text().catch(() => '');
+      console.error('Vincere API test failed:', testRes.status, errBody);
+    }
 
     res.setHeader('Set-Cookie', [
       `vincere_token=${idToken}; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=3600`,
