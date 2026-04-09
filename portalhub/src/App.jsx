@@ -335,7 +335,7 @@ function DashboardView({ activities, vincereConnected, vincereCount, setView }) 
             <div style={{ fontSize:14, fontWeight:700, color:C.amberLight, marginBottom:4 }}>⚠ Vincere nicht verbunden</div>
             <div style={{ fontSize:12.5, color:C.muted }}>Verbinde dein Vincere CRM um den Status in der Jobsuche zu sehen</div>
           </div>
-          <a href="/api/vincere/auth" style={{ background:C.amber, color:'#000', border:'none', borderRadius:9, padding:'10px 22px', fontSize:13, fontWeight:700, cursor:'pointer', textDecoration:'none', whiteSpace:'nowrap' }}>
+          <a href="/api/vincere/auth" onClick={(e) => { e.preventDefault(); window.location.href="/api/vincere/auth"; } style={{ background:C.amber, color:'#000', border:'none', borderRadius:9, padding:'10px 22px', fontSize:13, fontWeight:700, cursor:'pointer', textDecoration:'none', whiteSpace:'nowrap' }}>
             Vincere verbinden →
           </a>
         </div>
@@ -497,7 +497,7 @@ export default function App() {
                 <span style={{ fontSize:12, color:C.greenLight }}>Vincere aktiv</span>
               </div>
             ) : (
-              <a href="/api/vincere/auth" style={{ display:'flex', alignItems:'center', gap:9, width:'100%', padding:'9px 12px', borderRadius:9, background:'rgba(245,158,11,0.1)', border:'1px solid ' + C.amberBorder, color:C.amberLight, fontSize:12.5, fontWeight:600, textDecoration:'none', cursor:'pointer' }}>
+              <a href="/api/vincere/auth" onClick={(e) => { e.preventDefault(); window.location.href="/api/vincere/auth"; } style={{ display:'flex', alignItems:'center', gap:9, width:'100%', padding:'9px 12px', borderRadius:9, background:'rgba(245,158,11,0.1)', border:'1px solid ' + C.amberBorder, color:C.amberLight, fontSize:12.5, fontWeight:600, textDecoration:'none', cursor:'pointer' }}>
                 <span>🔗</span><span>Vincere verbinden</span>
               </a>
             )}
