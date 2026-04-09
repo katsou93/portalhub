@@ -2,7 +2,11 @@ export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
   if (req.method === 'OPTIONS') return res.status(200).end();
 
-  const token = req.cookies?.vincere_token;
+  // Parse cookies manually
+  const cookieStr = req.headers.cookie || '';
+  const cookies = Object.fromEntries(cookieStr.split(';').map(c => { const [k,...v] = c.trim().split('='); return [k, v.join('=')]; }));
+  const token = cookies.vincere_token;
+
   if (!token) return res.status(401).json({ error: 'not_authenticated' });
 
   const tenant = process.env.VINCERE_TENANT;
@@ -10,17 +14,12 @@ export default async function handler(req, res) {
   const appId   = process.env.VINCERE_APP_ID;
 
   try {
-    const r = await fetch(`https://${tenant}.vincere.io/api/v2/company/find?query=*&limit=500&offset=0`, {
-      headers: {
-        'id-token':  token,
-        'x-api-key': apiKey,
-        ...(appId ? { 'app-id': appId } : {}),
-      }
+    const r = await fetch('https://' + tenant + '.vincere.io/api/v2/company/find?query=*&limit=500&offset=0', {
+      headers: Object.assign({ 'id-token': token, 'x-api-key': apiKey }, appId ? { 'app-id': appId } : {})
     });
     const data = await r.json();
-    if (!r.ok) return res.status(r.status).json(data);
-    res.status(200).json(data);
+    return res.status(r.status).json(data);
   } catch (e) {
-    res.status(500).json({ error: e.message });
+    return res.status(500).json({ error: e.message });
   }
 }
