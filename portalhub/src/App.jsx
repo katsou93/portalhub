@@ -35,19 +35,24 @@ async function fetchAI(terms) {
   return JSON.parse(d.content[0].text.replace(/```json|```/g, '').trim());
 }
 
+async function checkVincereNames(companyNames) {
+  if (!companyNames || companyNames.length === 0) return [];
+  try {
+    const unique = [...new Set(companyNames)].filter(Boolean).slice(0, 30);
+    const r = await fetch('/api/vincere/companies?names=' + encodeURIComponent(unique.join(',')));
+    if (!r.ok) return [];
+    const d = await r.json();
+    return d.names || [];
+  } catch(e) { return []; }
+}
+
 async function loadVincereCompanies() {
+  // Just check if we're connected by calling with no params
   try {
     const r = await fetch('/api/vincere/companies');
-    if (!r.ok) return null;
-    const data = await r.json();
-    // API now returns { names: [], total: N, raw: [...] }
-    if (data.names) {
-      console.log('[App] Vincere names loaded:', data.names.length, '| sample:', data.names.slice(0,3));
-      console.log('[App] raw first item:', JSON.stringify(data.raw?.[0]));
-      return data;
-    }
-    return null;
-  } catch(e) { console.error('[App] loadVincere error:', e); return null; }
+    if (r.status === 401) return null;
+    return { names: [], connected: true };
+  } catch(e) { return null; }
 }
 
 async function addToVincere(name) {
@@ -180,6 +185,14 @@ function SearchView({ names, onAdd, addingId, setSH, connected }) {
       setJobs(prev => append ? [...prev, ...parsed] : parsed);
       setTotal(d.maxErgebnisse || 0); setPage(pg); setSearched(true);
       setSH(h => [{ id:Date.now(), terms:t, hits:d.maxErgebnisse||parsed.length, wo:wo||'', time:new Date().toLocaleTimeString('de-DE',{hour:'2-digit',minute:'2-digit'}) }, ...h.slice(0,19)]);
+      // Check which companies are in Vincere
+      if (connected) {
+        const uniqueNames = [...new Set(parsed.map(j => j.company).filter(Boolean))];
+        const foundInVincere = await checkVincereNames(uniqueNames);
+        if (foundInVincere.length > 0) {
+          setVNames(prev => [...new Set([...prev, ...foundInVincere])]);
+        }
+      }
     } catch(e) { setError(e.message); setSearched(true); }
     setLoading(false);
   }, [wo, umkreis, angebotsart, zeitarbeit]);
