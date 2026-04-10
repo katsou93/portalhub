@@ -185,13 +185,15 @@ function SearchView({ names, onAdd, addingId, setSH, connected }) {
       setJobs(prev => append ? [...prev, ...parsed] : parsed);
       setTotal(d.maxErgebnisse || 0); setPage(pg); setSearched(true);
       setSH(h => [{ id:Date.now(), terms:t, hits:d.maxErgebnisse||parsed.length, wo:wo||'', time:new Date().toLocaleTimeString('de-DE',{hour:'2-digit',minute:'2-digit'}) }, ...h.slice(0,19)]);
-      // Check which companies are in Vincere
-      if (connected) {
-        const uniqueNames = [...new Set(parsed.map(j => j.company).filter(Boolean))];
-        const foundInVincere = await checkVincereNames(uniqueNames);
-        if (foundInVincere.length > 0) {
-          setVNames(prev => [...new Set([...prev, ...foundInVincere])]);
-        }
+      // Check which companies are in Vincere (always try, API returns [] if not logged in)
+      const uniqueNames = [...new Set(parsed.map(j => j.company).filter(Boolean))];
+      if (uniqueNames.length > 0) {
+        checkVincereNames(uniqueNames).then(foundInVincere => {
+          if (foundInVincere.length > 0) {
+            setConnected(true);
+            setVNames(prev => [...new Set([...prev, ...foundInVincere])]);
+          }
+        });
       }
     } catch(e) { setError(e.message); setSearched(true); }
     setLoading(false);
@@ -392,10 +394,7 @@ export default function App() {
     }
 
     loadVincereCompanies().then(d => {
-      if (!d || !d.names) return;
-      setConnected(true);
-      console.log('[App] Setting', d.names.length, 'Vincere company names');
-      setVNames(d.names);
+      if (d && d.connected) setConnected(true);
     });
   }, []);
 
