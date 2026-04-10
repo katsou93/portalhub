@@ -364,6 +364,197 @@ function History({ sh, setView }) {
   );
 }
 
+
+function MonitoringView({ connected }) {
+  const [clients, setClients] = useState([]);
+  const [grouped, setGrouped] = useState({});
+  const [loading, setLoading] = useState(false);
+  const [openGroups, setOpenGroups] = useState({});
+  const [scanning, setScanning] = useState({});
+  const [scanResults, setScanResults] = useState({});
+  const [scanningAll, setScanningAll] = useState(false);
+  const [scanProgress, setScanProgress] = useState({ done: 0, total: 0 });
+
+  useEffect(() => {
+    if (!connected) return;
+    setLoading(true);
+    fetch('/api/vincere/clients')
+      .then(r => r.ok ? r.json() : null)
+      .then(d => {
+        if (!d) return;
+        setClients(d.clients || []);
+        setGrouped(d.grouped || {});
+        // Open all groups by default
+        const open = {};
+        Object.keys(d.grouped || {}).forEach(k => { open[k] = true; });
+        setOpenGroups(open);
+      })
+      .finally(() => setLoading(false));
+  }, [connected]);
+
+  const scanCompany = async (company) => {
+    if (!company.website && !company.careersite_url) {
+      setScanResults(prev => ({ ...prev, [company.id]: { error: 'Keine Website hinterlegt', jobs: [] } }));
+      return;
+    }
+    const url = company.careersite_url || company.website;
+    setScanning(prev => ({ ...prev, [company.id]: true }));
+    try {
+      const r = await fetch('/api/vincere/scrape?url=' + encodeURIComponent(url) + '&name=' + encodeURIComponent(company.name));
+      const d = await r.json();
+      setScanResults(prev => ({ ...prev, [company.id]: d }));
+    } catch(e) {
+      setScanResults(prev => ({ ...prev, [company.id]: { error: e.message, jobs: [] } }));
+    }
+    setScanning(prev => ({ ...prev, [company.id]: false }));
+  };
+
+  const scanAll = async () => {
+    const withWebsite = clients.filter(c => c.website || c.careersite_url);
+    setScanningAll(true);
+    setScanProgress({ done: 0, total: withWebsite.length });
+    for (const c of withWebsite) {
+      await scanCompany(c);
+      setScanProgress(prev => ({ ...prev, done: prev.done + 1 }));
+    }
+    setScanningAll(false);
+  };
+
+  const statusOrder = ['HOT - PRIO', 'HOTLEAD', 'HOT_LEAD', 'UPLOAD', 'KEY_ACCOUNT', 'KEY ACCOUNT', 'ACCOUNT', 'PRE_ACCOUNT', 'PRE ACCOUNT', 'PENDING'];
+  const sortedGroups = Object.keys(grouped).sort((a, b) => {
+    const ai = statusOrder.findIndex(s => a.toUpperCase().includes(s));
+    const bi = statusOrder.findIndex(s => b.toUpperCase().includes(s));
+    if (ai === -1 && bi === -1) return a.localeCompare(b);
+    if (ai === -1) return 1; if (bi === -1) return -1;
+    return ai - bi;
+  });
+
+  const statusColors = {
+    PENDING: { bg: 'rgba(75,142,240,0.12)', border: 'rgba(75,142,240,0.3)', text: '#88B4F7', label: 'Ausstehend' },
+  };
+  function getStatusStyle(status) {
+    const s = status?.toUpperCase() || '';
+    if (s.includes('HOT')) return { bg:'rgba(239,68,68,0.12)', border:'rgba(239,68,68,0.3)', text:'#FCA5A5' };
+    if (s.includes('KEY')) return { bg:'rgba(34,197,94,0.12)', border:'rgba(34,197,94,0.3)', text:'#4ADE80' };
+    if (s.includes('ACCOUNT') && !s.includes('PRE')) return { bg:'rgba(167,139,250,0.12)', border:'rgba(167,139,250,0.3)', text:'#C4B5FD' };
+    if (s.includes('PRE')) return { bg:'rgba(245,158,11,0.12)', border:'rgba(245,158,11,0.3)', text:'#FCD34D' };
+    if (s.includes('UPLOAD')) return { bg:'rgba(14,165,233,0.12)', border:'rgba(14,165,233,0.3)', text:'#7DD3FC' };
+    return { bg:'rgba(255,255,255,0.05)', border:'rgba(255,255,255,0.12)', text:'#E8EEF8' };
+  }
+
+  if (!connected) return (
+    <div style={{ textAlign:'center', padding:'80px 20px' }}>
+      <div style={{ fontSize:44, marginBottom:16, opacity:.3 }}>📊</div>
+      <p style={{ fontSize:15, color:C.muted }}>Bitte zuerst Vincere verbinden</p>
+      <button onClick={goVincere} style={{ marginTop:16, background:C.amber, color:'#000', border:'none', borderRadius:9, padding:'10px 22px', fontSize:13, fontWeight:700, cursor:'pointer', fontFamily:'inherit' }}>Vincere verbinden →</button>
+    </div>
+  );
+
+  const totalJobs = Object.values(scanResults).reduce((sum, r) => sum + (r.jobs?.length || 0), 0);
+  const withWebsite = clients.filter(c => c.website || c.careersite_url).length;
+
+  return (
+    <div>
+      <div style={{ marginBottom:20, display:'flex', alignItems:'flex-end', justifyContent:'space-between', flexWrap:'wrap', gap:12 }}>
+        <div>
+          <h1 style={{ fontFamily:'Instrument Serif,Georgia,serif', fontSize:'1.9rem', fontWeight:400, color:C.text }}>Monitoring</h1>
+          <p style={{ color:C.muted, fontSize:13, marginTop:4 }}>{clients.length} Kunden mit Status · {withWebsite} mit Website · {totalJobs} Stellen gefunden</p>
+        </div>
+        <div style={{ display:'flex', gap:10 }}>
+          {clients.length > 0 && !scanningAll && (
+            <button onClick={scanAll} style={{ background:C.violet, color:'#fff', border:'none', borderRadius:9, padding:'10px 20px', fontSize:13, fontWeight:700, cursor:'pointer', fontFamily:'inherit', display:'flex', alignItems:'center', gap:8 }}>
+              🔍 Alle {withWebsite} scannen
+            </button>
+          )}
+          {scanningAll && (
+            <div style={{ background:C.bg2, border:'1px solid '+C.violetBorder, borderRadius:9, padding:'10px 20px', fontSize:13, color:C.violetLight, display:'flex', alignItems:'center', gap:10 }}>
+              <Spin />{scanProgress.done}/{scanProgress.total} gescannt…
+            </div>
+          )}
+        </div>
+      </div>
+
+      {loading && <div style={{ textAlign:'center', padding:40, color:C.muted, display:'flex', alignItems:'center', justifyContent:'center', gap:12 }}><Spin /> Lade Kunden aus Vincere…</div>}
+
+      <div style={{ display:'flex', flexDirection:'column', gap:10 }}>
+        {sortedGroups.map(status => {
+          const companies = grouped[status] || [];
+          const isOpen = openGroups[status];
+          const style = getStatusStyle(status);
+          const groupJobs = companies.reduce((sum, c) => sum + (scanResults[c.id]?.jobs?.length || 0), 0);
+
+          return (
+            <div key={status} style={{ background:C.bg2, border:'1px solid '+C.border2, borderRadius:14, overflow:'hidden' }}>
+              <div onClick={() => setOpenGroups(prev => ({ ...prev, [status]: !prev[status] }))}
+                style={{ padding:'14px 18px', display:'flex', alignItems:'center', gap:12, cursor:'pointer', background:isOpen?C.bg3:'transparent' }}>
+                <span style={{ fontSize:13, color:C.faint }}>{isOpen ? '▼' : '▶'}</span>
+                <span style={{ fontSize:12, fontWeight:700, padding:'3px 10px', borderRadius:100, background:style.bg, color:style.text, border:'1px solid '+style.border, whiteSpace:'nowrap' }}>{status}</span>
+                <span style={{ fontSize:13, fontWeight:600, color:C.text }}>{companies.length} Unternehmen</span>
+                {groupJobs > 0 && <span style={{ fontSize:12, color:C.greenLight, background:C.greenDim, border:'1px solid '+C.greenBorder, padding:'2px 8px', borderRadius:100 }}>✓ {groupJobs} Stellen</span>}
+                <div style={{ flex:1 }} />
+                <span style={{ fontSize:12, color:C.faint }}>{companies.filter(c => c.website || c.careersite_url).length} mit Website</span>
+              </div>
+
+              {isOpen && (
+                <div style={{ borderTop:'1px solid '+C.border }}>
+                  {companies.map(company => {
+                    const result = scanResults[company.id];
+                    const isScanning = scanning[company.id];
+                    const hasWebsite = company.website || company.careersite_url;
+
+                    return (
+                      <div key={company.id} style={{ padding:'12px 18px', borderBottom:'1px solid '+C.border }}>
+                        <div style={{ display:'flex', alignItems:'center', gap:10, flexWrap:'wrap' }}>
+                          <div style={{ flex:1, minWidth:180 }}>
+                            <div style={{ fontSize:13.5, fontWeight:600, color:C.text }}>{company.name}</div>
+                            {hasWebsite && (
+                              <a href={company.careersite_url || company.website} target="_blank" rel="noreferrer"
+                                style={{ fontSize:11, color:C.faint, textDecoration:'none' }}
+                                onClick={e => e.stopPropagation()}>
+                                ↗ {(company.careersite_url || company.website || '').replace(/^https?:\/\//, '').substring(0, 50)}
+                              </a>
+                            )}
+                            {!hasWebsite && <span style={{ fontSize:11, color:C.red, opacity:.6 }}>Keine Website</span>}
+                          </div>
+
+                          {!result && (
+                            <button onClick={() => scanCompany(company)} disabled={isScanning || !hasWebsite}
+                              style={{ background: hasWebsite ? C.blue : 'rgba(255,255,255,0.05)', color: hasWebsite ? '#fff' : C.faint, border:'none', borderRadius:7, padding:'6px 14px', fontSize:12, fontWeight:600, cursor: hasWebsite ? 'pointer' : 'not-allowed', fontFamily:'inherit', display:'flex', alignItems:'center', gap:6, whiteSpace:'nowrap' }}>
+                              {isScanning ? <><Spin />Scanne…</> : '🔍 Scannen'}
+                            </button>
+                          )}
+                          {result && !result.error && (
+                            <span style={{ fontSize:12, color:C.greenLight, whiteSpace:'nowrap' }}>✓ {result.jobs?.length || 0} Stellen</span>
+                          )}
+                          {result?.error && (
+                            <span style={{ fontSize:11, color:C.red, opacity:.7 }}>{result.error}</span>
+                          )}
+                        </div>
+
+                        {result?.jobs?.length > 0 && (
+                          <div style={{ marginTop:10, display:'flex', flexDirection:'column', gap:4 }}>
+                            {result.jobs.map((job, ji) => (
+                              <a key={ji} href={job.url} target="_blank" rel="noreferrer"
+                                style={{ display:'flex', alignItems:'center', gap:8, padding:'6px 10px', background:C.bg4, borderRadius:7, textDecoration:'none', border:'1px solid '+C.border }}>
+                                <span style={{ fontSize:12, color:C.text, flex:1 }}>{job.title}</span>
+                                <span style={{ fontSize:10, color:C.faint }}>↗</span>
+                              </a>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 export default function App() {
   const [view, setView] = useState('dashboard');
   const [acts, setActs] = useState([]);
@@ -409,6 +600,7 @@ export default function App() {
   const nav = [
     { id:'dashboard', icon:'◧', label:'Dashboard' },
     { id:'search', icon:'⌕', label:'Jobsuche' },
+    { id:'monitoring', icon:'📊', label:'Monitoring' },
     { id:'history', icon:'◷', label:'Verlauf', badge:sh.length },
   ];
 
@@ -458,6 +650,7 @@ export default function App() {
         {view==='dashboard' && <Dashboard acts={acts} connected={connected} vCount={vNames.length} setView={setView} />}
         {view==='search' && <SearchView names={vNames} onAdd={handleAdd} addingId={addingId} setSH={setSH} connected={connected} />}
         {view==='history' && <History sh={sh} setView={setView} />}
+        {view==='monitoring' && <MonitoringView connected={connected} />}
       </main>
     </div>
   );
