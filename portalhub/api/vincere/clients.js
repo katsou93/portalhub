@@ -15,15 +15,13 @@ export default async function handler(req, res) {
   const headers = { 'id-token': token, 'x-api-key': apiKey };
   if (appId) headers['app-id'] = appId;
 
-  // batch=N → fetch details for the Nth batch of 30 from the pre-filtered list
   const batch     = parseInt(req.query.batch || '0', 10);
-  const batchSize = 30;
+  const batchSize = 25;
 
   try {
-    // Step 1: Load ALL company IDs from search, but only keep ones with status="1"
-    // status="1" in search means the company HAS a stage/stage_status set in Vincere
-    // This reduces ~3796 → ~600 companies (only those with actual CRM stages)
-    const filteredIds = [];
+    // Step 1: Load ALL company IDs - keep ALL regardless of status
+    // We need all because we dont know which search status maps to which stage_status
+    const allIds = [];
     let start = 0;
     let total = 9999;
 
@@ -36,18 +34,17 @@ export default async function handler(req, res) {
       const d = await r.json();
       const items = d.result?.items || [];
       total = d.result?.total || 0;
-      // Only keep companies where search status = "1" (these have a stage set)
-      items.filter(c => c.status === '1').forEach(c => filteredIds.push({ id: c.id, name: c.name }));
+      // Keep ALL companies - we filter after getting stage_status from detail
+      items.forEach(c => allIds.push({ id: c.id, name: c.name, searchStatus: c.status }));
       if (items.length < 500) break;
       start += 500;
     }
 
-    // Step 2: Get this batch of IDs
-    const batchIds   = filteredIds.slice(batch * batchSize, (batch + 1) * batchSize);
-    const hasMore    = (batch + 1) * batchSize < filteredIds.length;
-    const nextBatch  = batch + 1;
+    // Step 2: Get this batch
+    const batchIds  = allIds.slice(batch * batchSize, (batch + 1) * batchSize);
+    const hasMore   = (batch + 1) * batchSize < allIds.length;
 
-    // Step 3: Fetch details for this batch in parallel
+    // Step 3: Fetch details in parallel
     const clients = (await Promise.all(
       batchIds.map(async item => {
         try {
@@ -55,12 +52,12 @@ export default async function handler(req, res) {
           if (!r.ok) return null;
           const d = await r.json();
           const status = d.stage_status || null;
-          if (!status) return null;
+          if (!status) return null; // skip companies with no stage
           return {
-            id:           item.id,
-            name:         d.company_name || item.name,
+            id:            item.id,
+            name:          d.company_name || item.name,
             status,
-            website:      d.website || null,
+            website:       d.website || null,
             careersite_url: d.careersite_url || null,
           };
         } catch(e) { return null; }
@@ -71,9 +68,9 @@ export default async function handler(req, res) {
       clients,
       batch,
       hasMore,
-      nextBatch,
-      totalFiltered: filteredIds.length,
-      processed: Math.min((batch + 1) * batchSize, filteredIds.length),
+      nextBatch:     batch + 1,
+      totalCompanies: allIds.length,
+      processed:     Math.min((batch + 1) * batchSize, allIds.length),
     });
 
   } catch(e) {
