@@ -39,8 +39,15 @@ async function loadVincereCompanies() {
   try {
     const r = await fetch('/api/vincere/companies');
     if (!r.ok) return null;
-    return r.json();
-  } catch (e) { return null; }
+    const data = await r.json();
+    // Extract names from all possible Vincere response formats
+    const items = data.result || data.results || data.items || [];
+    const names = items
+      .map(c => c.name || c.company_name || c.registered_name || '')
+      .filter(Boolean);
+    console.log('[Vincere] loaded', names.length, 'companies. First 5:', names.slice(0,5));
+    return { names, raw: data };
+  } catch (e) { console.error('[Vincere] load error:', e); return null; }
 }
 
 async function addToVincere(name) {
@@ -121,12 +128,19 @@ function JobCard({ job, names, onAdd, addingId }) {
   const [hov, setHov] = useState(false);
   const init = (job.company || '?').split(' ').slice(0, 2).map(w => w[0] || '').join('').toUpperCase().slice(0, 2);
   const inV = names.some(n => nameMatch(n, job.company));
+  const baUrl = job.refnr
+    ? 'https://www.arbeitsagentur.de/jobsuche/jobdetail/' + job.refnr
+    : null;
   return (
     <div onMouseEnter={() => setHov(true)} onMouseLeave={() => setHov(false)}
-      style={{ background:hov?C.bg3:C.bg2, border:'1px solid '+(inV?C.greenBorder:C.border2), borderRadius:12, padding:'13px 16px', display:'flex', alignItems:'center', gap:13, transition:'all .15s' }}>
-      <div style={{ width:40, height:40, borderRadius:9, background:C.bg4, border:'1px solid '+C.border2, display:'flex', alignItems:'center', justifyContent:'center', fontSize:12, fontWeight:700, color:C.muted, flexShrink:0 }}>{init}</div>
+      style={{ background:hov?C.bg3:C.bg2, border:'1px solid '+(inV?C.greenBorder:C.border2), borderRadius:12, padding:'13px 16px', display:'flex', alignItems:'center', gap:13, transition:'all .15s', cursor: baUrl?'pointer':'default' }}
+      onClick={e => { if (baUrl && !e.target.closest('button')) window.open(baUrl, '_blank'); }}>
+      <div style={{ width:40, height:40, borderRadius:9, background:inV?C.greenDim:C.bg4, border:'1px solid '+(inV?C.greenBorder:C.border2), display:'flex', alignItems:'center', justifyContent:'center', fontSize:12, fontWeight:700, color:inV?C.greenLight:C.muted, flexShrink:0 }}>{init}</div>
       <div style={{ flex:1, minWidth:0 }}>
-        <div style={{ fontSize:13.5, fontWeight:600, color:C.text, marginBottom:2, whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis' }}>{job.title}</div>
+        <div style={{ fontSize:13.5, fontWeight:600, color:C.text, marginBottom:2, whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis' }}>
+          {job.title}
+          {baUrl && <span style={{ fontSize:10, color:C.faint, marginLeft:8 }}>↗</span>}
+        </div>
         <div style={{ fontSize:12, color:C.muted }}>{job.company} · {job.city}</div>
       </div>
       <div style={{ display:'flex', alignItems:'center', gap:7, flexShrink:0 }}>
@@ -367,8 +381,7 @@ export default function App() {
     loadVincereCompanies().then(d => {
       if (!d) return;
       setConnected(true);
-      const ns = (d.result || d.results || d.items || []).map(c => c.name || '').filter(Boolean);
-      setVNames(ns);
+      setVNames(d.names || []);
     });
   }, []);
 
