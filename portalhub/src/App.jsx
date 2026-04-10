@@ -375,8 +375,6 @@ function MonitoringView({ connected }) {
   const [scanningAll, setScanningAll] = useState(false);
   const [scanProgress, setScanProgress] = useState({ done: 0, total: 0 });
 
-  const [loadProgress, setLoadProgress] = useState({ processed: 0, total: 0 });
-
   useEffect(() => {
     if (!connected) return;
     setLoading(true);
