@@ -279,7 +279,8 @@ function MonitoringView({connected}) {
     setScanning(p=>({...p,[company.id]:true}));
     try{
       const r=await fetch('/api/vincere/scrape?url='+encodeURIComponent(url));
-      setScanResults(p=>({...p,[company.id]:await r.json()}));
+      const data=await r.json();
+      setScanResults(p=>({...p,[company.id]:data}));
     }catch(e){setScanResults(p=>({...p,[company.id]:{error:e.message,jobs:[]}}));}
     setScanning(p=>({...p,[company.id]:false}));
   };
