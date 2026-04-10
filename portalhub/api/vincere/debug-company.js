@@ -10,19 +10,28 @@ export default async function handler(req, res) {
   const apiKey  = process.env.VINCERE_API_KEY;
   const headers = { 'id-token': token, 'x-api-key': apiKey };
 
-  // Get first company ID from search with ID field included
-  const searchUrl = 'https://' + tenant + '.vincere.io/api/v2/company/search/fl=id,name,status,company_type,ownership;sort=name asc?keyword=&start=0&rows=5';
+  // Get 20 companies from search with IDs
+  const searchUrl = 'https://' + tenant + '.vincere.io/api/v2/company/search/fl=id,name,status;sort=name asc?keyword=&start=0&rows=20';
   const sr = await fetch(searchUrl, { headers });
   const sd = await sr.json();
   const items = sd.result?.items || [];
   
-  // Get detail of first company
-  if (items.length > 0) {
-    const id = items[0].id;
-    const dr = await fetch('https://' + tenant + '.vincere.io/api/v2/company/' + id, { headers });
+  // Fetch detail for first 5 to see stage/stage_status values
+  const details = [];
+  for (const item of items.slice(0, 8)) {
+    const dr = await fetch('https://' + tenant + '.vincere.io/api/v2/company/' + item.id, { headers });
     const dd = await dr.json();
-    return res.status(200).json({ searchItem: items[0], detail: dd, allSearchKeys: Object.keys(items[0]) });
+    details.push({
+      name: item.name,
+      search_status: item.status,
+      stage: dd.stage,
+      stage_status: dd.stage_status,
+      status_id: dd.status_id,
+    });
   }
   
-  return res.status(200).json({ items });
+  const allStageStatuses = [...new Set(details.map(d => d.stage_status).filter(Boolean))];
+  const allStages = [...new Set(details.map(d => d.stage).filter(Boolean))];
+  
+  return res.status(200).json({ details, allStageStatuses, allStages });
 }
