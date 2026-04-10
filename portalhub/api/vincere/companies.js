@@ -16,33 +16,23 @@ export default async function handler(req, res) {
   if (appId) headers['app-id'] = appId;
 
   try {
-    const r = await fetch(
-      'https://' + tenant + '.vincere.io/api/v2/company/find?query=*&limit=500',
-      { headers }
-    );
+    // Vincere uses Solr search syntax - correct endpoint
+    const url = 'https://' + tenant + '.vincere.io/api/v2/company/search/fl=id,name,status,web_site;sort=name asc?q=*&start=0&rows=500';
+    const r = await fetch(url, { headers });
     const text = await r.text();
+
     if (!r.ok) {
-      console.error('[companies] ' + r.status + ':', text.substring(0,200));
+      console.error('[companies]', r.status, text.substring(0,200));
       return res.status(r.status).json({ error: text.substring(0,200) });
     }
+
     const data = JSON.parse(text);
-    
-    // Extract names from ALL possible field names Vincere might use
-    const items = data.result || data.results || data.items || data.companies || [];
-    const names = [...new Set(
-      items.map(c => 
-        c.name || c.company_name || c.registered_name || 
-        c.trading_name || c.legal_name || ''
-      ).filter(Boolean)
-    )];
-    
-    console.log('[companies] total:', data.total || items.length, '| names:', names.slice(0,5).join(', ') || 'NONE FOUND');
-    console.log('[companies] first item keys:', items[0] ? Object.keys(items[0]).join(',') : 'NO ITEMS');
-    
-    // Return both the names array AND raw data so frontend can debug
-    return res.status(200).json({ names, total: names.length, raw: items.slice(0,3) });
+    const items = data.result || data.results || data.items || [];
+    const names = [...new Set(items.map(c => c.name || '').filter(Boolean))];
+
+    console.log('[companies] count:', names.length, 'sample:', names.slice(0,5).join(' | '));
+    return res.status(200).json({ names, total: names.length });
   } catch(e) {
-    console.error('[companies] error:', e.message);
     return res.status(500).json({ error: e.message });
   }
 }
