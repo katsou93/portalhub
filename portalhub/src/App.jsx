@@ -63,8 +63,30 @@ function fmt(d) {
 function mapA(a) { return { 1: 'Arbeitsstelle', 2: 'Ausbildung', 4: 'Praktikum' }[a] || 'Sonstiges'; }
 function nameMatch(a, b) {
   if (!a || !b) return false;
-  const c = s => s.toLowerCase().replace(/gmbh|ag|kg|co\.| /g, '').trim();
-  return c(a) === c(b) || c(a).startsWith(c(b).slice(0, 5)) || c(b).startsWith(c(a).slice(0, 5));
+  // Normalize: lowercase, remove legal suffixes, extra spaces, special chars
+  const norm = s => s.toLowerCase()
+    .replace(/gmbh & co\. ?kg|gmbh & co|gmbh co kg/g, '')
+    .replace(/\bgmbh\b|\bag\b|\b(co\.?)?kg\b|\bse\b|\bev\b|\bmbh\b|\bltd\b|\binc\b|\bcorp\b/g, '')
+    .replace(/[^a-z0-9äöüß]/g, ' ')
+    .replace(/\s+/g, ' ').trim();
+
+  const na = norm(a), nb = norm(b);
+  if (!na || !nb) return false;
+
+  // Exact match after normalization
+  if (na === nb) return true;
+
+  // One contains the other (handles "Siemens AG München" vs "Siemens AG")
+  if (na.includes(nb) || nb.includes(na)) return true;
+
+  // Word overlap: if 80%+ of words in the shorter name match the longer
+  const wordsA = na.split(' ').filter(w => w.length > 2);
+  const wordsB = nb.split(' ').filter(w => w.length > 2);
+  const shorter = wordsA.length <= wordsB.length ? wordsA : wordsB;
+  const longer  = wordsA.length <= wordsB.length ? wordsB : wordsA;
+  if (shorter.length === 0) return false;
+  const matches = shorter.filter(w => longer.some(lw => lw.startsWith(w) || w.startsWith(lw)));
+  return matches.length / shorter.length >= 0.8;
 }
 function parseJob(j) {
   return { id: j.hashId || j.refnr || Math.random().toString(36), title: j.titel || '—',
