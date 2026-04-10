@@ -262,7 +262,7 @@ function MonitoringView({connected}) {
         if(!r.ok){setLoading(false);return;}
         const d=await r.json();
         const all=[...acc,...(d.clients||[])];
-        setLoadProgress({processed:d.processed||0,total:d.totalCompanies||0});
+        setLoadProgress({processed:d.processed||0,total:d.totalFiltered||0});
         const g={};
         for(const c of all){const k=c.status||'Kein Status';if(!g[k])g[k]=[];g[k].push(c);}
         setClients(all);setGrouped(g);
@@ -330,7 +330,7 @@ function MonitoringView({connected}) {
 
       {loading&&<div style={{padding:'12px 18px',background:C.bg2,border:'1px solid '+C.border2,borderRadius:12,display:'flex',alignItems:'center',gap:12,marginBottom:12}}>
         <Spin/>
-        <span style={{fontSize:13,color:C.muted}}>Lade Kunden aus Vincere{loadProgress.processed>0?' … '+loadProgress.processed+'/'+loadProgress.total+' geprüft · '+clients.length+' mit Status':' …'}</span>
+        <span style={{fontSize:13,color:C.muted}}>Lade Kunden aus Vincere{loadProgress.total>0?' … '+loadProgress.processed+'/'+loadProgress.total+' geprüft · '+clients.length+' gefunden':' …'}</span>
       </div>}
 
       <div style={{display:'flex',flexDirection:'column',gap:10}}>
