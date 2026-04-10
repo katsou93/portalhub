@@ -16,14 +16,14 @@ export default async function handler(req, res) {
   if (appId) headers['app-id'] = appId;
 
   try {
-    // Step 1: Load all companies with IDs paginated
+    // Step 1: Load ALL companies with stage_status in search (8 requests total, not 3796)
     const allItems = [];
     let start = 0;
     let total = 9999;
 
     while (start < total) {
       const r = await fetch(
-        'https://' + tenant + '.vincere.io/api/v2/company/search/fl=id,name,status;sort=name asc?keyword=&start=' + start + '&rows=500',
+        'https://' + tenant + '.vincere.io/api/v2/company/search/fl=id,name,status,stage_status,web_site;sort=name asc?keyword=&start=' + start + '&rows=500',
         { headers }
       );
       if (!r.ok) break;
@@ -35,39 +35,48 @@ export default async function handler(req, res) {
       start += 500;
     }
 
-    // Step 2: Fetch details in parallel batches of 10 to get stage_status + website
-    const clients = [];
-    const batchSize = 10;
+    // Step 2: Filter to only companies that have a stage_status set
+    const withStatus = allItems.filter(c => c.stage_status);
 
-    for (let i = 0; i < allItems.length; i += batchSize) {
-      const batch = allItems.slice(i, i + batchSize);
+    // Step 3: For those with status, fetch detail to get website (batch of 20 parallel)
+    const clients = [];
+    const batchSize = 20;
+
+    for (let i = 0; i < withStatus.length; i += batchSize) {
+      const batch = withStatus.slice(i, i + batchSize);
       const details = await Promise.all(
         batch.map(async item => {
           try {
             const r = await fetch('https://' + tenant + '.vincere.io/api/v2/company/' + item.id, { headers });
-            if (!r.ok) return null;
+            if (!r.ok) return { id: item.id, name: item.name, status: item.stage_status, website: item.web_site || null, careersite_url: null };
             const d = await r.json();
             return {
               id: item.id,
               name: d.company_name || item.name,
-              status: d.stage_status || null,
-              website: d.website || null,
+              status: item.stage_status,
+              website: d.website || item.web_site || null,
               careersite_url: d.careersite_url || null,
             };
-          } catch(e) { return null; }
+          } catch(e) {
+            return { id: item.id, name: item.name, status: item.stage_status, website: item.web_site || null, careersite_url: null };
+          }
         })
       );
-      clients.push(...details.filter(Boolean).filter(c => c.status));
+      clients.push(...details);
     }
 
-    // Group by status
+    // Step 4: Group by status
     const grouped = {};
     for (const c of clients) {
-      if (!grouped[c.status]) grouped[c.status] = [];
-      grouped[c.status].push(c);
+      const key = c.status || 'Kein Status';
+      if (!grouped[key]) grouped[key] = [];
+      grouped[key].push(c);
     }
 
-    return res.status(200).json({ clients, grouped, total: clients.length });
+    // Also return all unique statuses found
+    const allStatuses = [...new Set(allItems.map(c => c.stage_status).filter(Boolean))];
+
+    return res.status(200).json({ clients, grouped, total: clients.length, allStatuses });
   } catch(e) {
     return res.status(500).json({ error: e.message });
   }
