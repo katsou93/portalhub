@@ -38,7 +38,7 @@ export default async function handler(req, res) {
 
     // Token erfolgreich — direkt als verbunden markieren, kein extra API-Test
     res.setHeader('Set-Cookie', [
-      'vincere_token=' + idToken + '; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=3600',
+      'vincere_token=' + idToken + '; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=86400',
       'vincere_domain=' + (process.env.VINCERE_TENANT || '') + '; Path=/; Secure; SameSite=Lax; Max-Age=3600',
     ]);
 
