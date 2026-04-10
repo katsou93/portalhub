@@ -16,21 +16,21 @@ export default async function handler(req, res) {
   if (appId) headers['app-id'] = appId;
 
   try {
-    // Vincere uses Solr search syntax - correct endpoint
-    const url = 'https://' + tenant + '.vincere.io/api/v2/company/search/fl=id,name,status,web_site;sort=name asc?q=*&start=0&rows=500';
+    // Vincere Solr: q=id:[1 TO *] fetches all companies
+    const url = 'https://' + tenant + '.vincere.io/api/v2/company/search/fl=id,name,status,web_site;sort=name asc?q=id:[1+TO+*]&start=0&rows=500';
     const r = await fetch(url, { headers });
     const text = await r.text();
 
     if (!r.ok) {
-      console.error('[companies]', r.status, text.substring(0,200));
-      return res.status(r.status).json({ error: text.substring(0,200) });
+      console.error('[companies]', r.status, text.substring(0, 300));
+      return res.status(r.status).json({ error: text.substring(0, 200) });
     }
 
     const data = JSON.parse(text);
     const items = data.result || data.results || data.items || [];
     const names = [...new Set(items.map(c => c.name || '').filter(Boolean))];
 
-    console.log('[companies] count:', names.length, 'sample:', names.slice(0,5).join(' | '));
+    console.log('[companies] count:', names.length, '| sample:', names.slice(0, 5).join(' | '));
     return res.status(200).json({ names, total: names.length });
   } catch(e) {
     return res.status(500).json({ error: e.message });
