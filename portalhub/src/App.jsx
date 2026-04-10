@@ -35,14 +35,29 @@ async function fetchAI(terms) {
   return JSON.parse(d.content[0].text.replace(/```json|```/g, '').trim());
 }
 
-async function loadVincereCompanies() {
-  try {
-    const r = await fetch('/api/vincere/companies');
-    if (r.status === 401) return null;
-    const d = await r.json();
-    if (d.names) return d;
-    return { names: [], connected: true };
-  } catch(e) { return null; }
+async function loadVincereCompanies(onBatch) {
+  // Load all companies page by page (500 per request)
+  let start = 0;
+  let hasMore = true;
+  let allNames = [];
+
+  while (hasMore) {
+    try {
+      const r = await fetch('/api/vincere/companies?start=' + start);
+      if (r.status === 401) return null;
+      if (!r.ok) break;
+      const d = await r.json();
+      if (!d.names || d.names.length === 0) break;
+
+      allNames = allNames.concat(d.names);
+      if (onBatch) onBatch(allNames);
+
+      hasMore = d.hasMore;
+      start = d.nextStart;
+    } catch(e) { break; }
+  }
+
+  return { names: allNames, total: allNames.length, connected: true };
 }
 
 async function addToVincere(name) {
@@ -170,18 +185,7 @@ function SearchView({ names, onAdd, addingId, setSH, connected }) {
       setJobs(prev => append ? [...prev, ...parsed] : parsed);
       setTotal(d.maxErgebnisse || 0); setPage(pg); setSearched(true);
       setSH(h => [{ id:Date.now(), terms:t, hits:d.maxErgebnisse||parsed.length, wo:wo||'', time:new Date().toLocaleTimeString('de-DE',{hour:'2-digit',minute:'2-digit'}) }, ...h.slice(0,19)]);
-      // Check which companies from results are in Vincere
-      const uniqueNames = [...new Set(parsed.map(j => j.company).filter(Boolean))];
-      if (uniqueNames.length > 0) {
-        fetch('/api/vincere/companies?names=' + encodeURIComponent(uniqueNames.join(',')))
-          .then(r => r.ok ? r.json() : null)
-          .then(d => {
-            if (d && d.names && d.names.length > 0) {
-              setConnected(true);
-              setVNames(prev => [...new Set([...prev, ...d.names])]);
-            }
-          }).catch(() => {});
-      }
+
     } catch(e) { setError(e.message); setSearched(true); }
     setLoading(false);
   }, [wo, umkreis, angebotsart, zeitarbeit]);
@@ -380,10 +384,14 @@ export default function App() {
       setActs(a => [{ id:Date.now(), type:'crm', text:'Vincere CRM verbunden ✓', time:new Date().toLocaleTimeString('de-DE',{hour:'2-digit',minute:'2-digit'}), col:C.green }, ...a]);
     }
 
-    loadVincereCompanies().then(d => {
+    loadVincereCompanies((names) => {
+      // Progressive update - show green badges as names load in batches
+      setConnected(true);
+      setVNames([...names]);
+    }).then(d => {
       if (!d) return;
       setConnected(true);
-      if (d.names && d.names.length > 0) setVNames(d.names);
+      setVNames(d.names || []);
     });
   }, []);
 
