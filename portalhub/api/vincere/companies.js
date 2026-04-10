@@ -15,32 +15,69 @@ export default async function handler(req, res) {
   const headers = { 'id-token': token, 'x-api-key': apiKey };
   if (appId) headers['app-id'] = appId;
 
-  // GET /api/vincere/companies?names=Bosch,Siemens,Festo
-  const { names } = req.query;
+  const { names, debug } = req.query;
 
+  // Debug mode: try different query syntaxes and show raw results
+  if (debug) {
+    const testName = debug;
+    const base = 'https://' + tenant + '.vincere.io/api/v2/company/search/fl=id,name;sort=name asc?';
+    const results = {};
+    
+    const queries = [
+      ['default_field', 'q=' + encodeURIComponent(testName) + '&start=0&rows=5'],
+      ['name_exact', 'q=name:' + encodeURIComponent(testName) + '&start=0&rows=5'],
+      ['name_wildcard', 'q=name:' + encodeURIComponent(testName + '*') + '&start=0&rows=5'],
+      ['name_contains', 'q=name:' + encodeURIComponent('*' + testName + '*') + '&start=0&rows=5'],
+      ['registered_name', 'q=registered_name:' + encodeURIComponent(testName) + '&start=0&rows=5'],
+      ['keyword', 'keyword=' + encodeURIComponent(testName) + '&start=0&rows=5'],
+    ];
+
+    for (const [key, q] of queries) {
+      try {
+        const r = await fetch(base + q, { headers });
+        const text = await r.text();
+        let parsed;
+        try { parsed = JSON.parse(text); } catch(e) { parsed = text.substring(0,100); }
+        results[key] = { status: r.status, items: (parsed?.result||parsed?.results||parsed?.items||[]).length, raw: JSON.stringify(parsed).substring(0,200) };
+      } catch(e) {
+        results[key] = { error: e.message };
+      }
+    }
+    return res.status(200).json(results);
+  }
+
+  // Normal mode: check specific names
   if (names) {
-    // Check specific company names - search each one individually
-    const nameList = names.split(',').map(n => n.trim()).filter(Boolean).slice(0, 30);
+    const nameList = names.split(',').map(n => n.trim()).filter(Boolean).slice(0, 50);
     const found = [];
+    const base = 'https://' + tenant + '.vincere.io/api/v2/company/search/fl=id,name;sort=name asc?';
 
     for (const name of nameList) {
-      try {
-        const encoded = encodeURIComponent(name.replace(/['"]/g, ''));
-        const url = 'https://' + tenant + '.vincere.io/api/v2/company/search/fl=id,name;sort=name asc?q=name:' + encoded + '&start=0&rows=5';
-        const r = await fetch(url, { headers });
-        if (r.ok) {
+      // Try multiple query strategies per name
+      const strategies = [
+        'q=' + encodeURIComponent(name) + '&start=0&rows=3',
+        'q=name:' + encodeURIComponent(name) + '&start=0&rows=3',
+        'q=name:' + encodeURIComponent(name.split(' ')[0] + '*') + '&start=0&rows=3',
+      ];
+      
+      let matched = false;
+      for (const q of strategies) {
+        try {
+          const r = await fetch(base + q, { headers });
+          if (!r.ok) continue;
           const d = await r.json();
           const items = d.result || d.results || d.items || [];
           if (items.length > 0) {
             found.push(...items.map(c => c.name).filter(Boolean));
+            matched = true;
+            break;
           }
-        }
-      } catch(e) {}
+        } catch(e) {}
+      }
     }
 
-    return res.status(200).json({ names: found, checked: nameList.length });
+    return res.status(200).json({ names: [...new Set(found)], total: found.length });
   }
 
-  // No names param - return empty (we no longer try to load all)
-  return res.status(200).json({ names: [], total: 0 });
+  return res.status(200).json({ names: [], connected: true });
 }
