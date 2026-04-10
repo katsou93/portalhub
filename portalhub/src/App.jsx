@@ -40,14 +40,14 @@ async function loadVincereCompanies() {
     const r = await fetch('/api/vincere/companies');
     if (!r.ok) return null;
     const data = await r.json();
-    // Extract names from all possible Vincere response formats
-    const items = data.result || data.results || data.items || [];
-    const names = items
-      .map(c => c.name || c.company_name || c.registered_name || '')
-      .filter(Boolean);
-    console.log('[Vincere] loaded', names.length, 'companies. First 5:', names.slice(0,5));
-    return { names, raw: data };
-  } catch (e) { console.error('[Vincere] load error:', e); return null; }
+    // API now returns { names: [], total: N, raw: [...] }
+    if (data.names) {
+      console.log('[App] Vincere names loaded:', data.names.length, '| sample:', data.names.slice(0,3));
+      console.log('[App] raw first item:', JSON.stringify(data.raw?.[0]));
+      return data;
+    }
+    return null;
+  } catch(e) { console.error('[App] loadVincere error:', e); return null; }
 }
 
 async function addToVincere(name) {
@@ -379,9 +379,10 @@ export default function App() {
     }
 
     loadVincereCompanies().then(d => {
-      if (!d) return;
+      if (!d || !d.names) return;
       setConnected(true);
-      setVNames(d.names || []);
+      console.log('[App] Setting', d.names.length, 'Vincere company names');
+      setVNames(d.names);
     });
   }, []);
 
