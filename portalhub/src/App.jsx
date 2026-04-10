@@ -256,21 +256,68 @@ function MonitoringView({connected}) {
   useEffect(()=>{
     if(!connected)return;
     setLoading(true);
-    const run=async(batch,acc)=>{
-      try{
-        const r=await fetch('/api/vincere/clients?batch='+batch);
-        if(!r.ok){setLoading(false);return;}
-        const d=await r.json();
-        const all=[...acc,...(d.clients||[])];
-        setLoadProgress({processed:d.processed||0,total:d.totalFiltered||0});
-        const g={};
-        for(const c of all){const k=c.status||'Kein Status';if(!g[k])g[k]=[];g[k].push(c);}
-        setClients(all);setGrouped(g);
-        setOpenGroups(prev=>{const o={...prev};Object.keys(g).forEach(k=>{if(!(k in o))o[k]=true;});return o;});
-        if(d.hasMore)run(d.nextBatch,all); else setLoading(false);
-      }catch(e){setLoading(false);}
+    setLoadProgress({processed:0,total:0,phase:'Prüfe Cache…'});
+
+    const applyClients = (clients, grouped) => {
+      setClients(clients);
+      setGrouped(grouped);
+      setOpenGroups(prev=>{
+        const o={...prev};
+        Object.keys(grouped).forEach(k=>{if(!(k in o))o[k]=true;});
+        return o;
+      });
     };
-    run(0,[]);
+
+    const runLoad = async (batch, totalIds) => {
+      try {
+        setLoadProgress({processed:batch*25,total:totalIds,phase:'Lade Details…'});
+        const r = await fetch('/api/vincere/clients?action=load&batch='+batch);
+        if(!r.ok){setLoading(false);return;}
+        const d = await r.json();
+        if(d.done){
+          // Final batch - read from cache
+          const fr = await fetch('/api/vincere/clients');
+          const fd = await fr.json();
+          if(fd.clients) applyClients(fd.clients, fd.grouped||{});
+          setLoading(false);
+        } else {
+          setLoadProgress({processed:d.processed||0,total:d.totalIds||0,phase:'Lade Details… ('+d.loaded+' mit Status gefunden)'});
+          runLoad(d.nextBatch, d.totalIds);
+        }
+      } catch(e){setLoading(false);}
+    };
+
+    const init = async () => {
+      try {
+        // Step 1: Check cache
+        const cr = await fetch('/api/vincere/clients');
+        const cd = await cr.json();
+
+        if(cd.fromCache && cd.clients){
+          applyClients(cd.clients, cd.grouped||{});
+          setLoading(false);
+          return;
+        }
+
+        if(cd.needsLoad && cd.totalIds){
+          // IDs already loaded, continue with details
+          runLoad(0, cd.totalIds);
+          return;
+        }
+
+        // Step 2: No cache - init IDs first
+        setLoadProgress({processed:0,total:0,phase:'Lade Firmenliste aus Vincere…'});
+        const ir = await fetch('/api/vincere/clients?action=init');
+        const id = await ir.json();
+        if(!id.ok){setLoading(false);return;}
+
+        // Step 3: Load details batch by batch
+        runLoad(0, id.totalIds);
+
+      } catch(e){setLoading(false);}
+    };
+
+    init();
   },[connected]);
 
   const scanCompany=async(company)=>{
@@ -330,7 +377,7 @@ function MonitoringView({connected}) {
 
       {loading&&<div style={{padding:'12px 18px',background:C.bg2,border:'1px solid '+C.border2,borderRadius:12,display:'flex',alignItems:'center',gap:12,marginBottom:12}}>
         <Spin/>
-        <span style={{fontSize:13,color:C.muted}}>Lade Kunden aus Vincere{loadProgress.total>0?' … '+loadProgress.processed+'/'+loadProgress.total+' geprüft · '+clients.length+' gefunden':' …'}</span>
+        <span style={{fontSize:13,color:C.muted}}>{loadProgress.phase||'Lade…'}{loadProgress.total>0?' · '+loadProgress.processed+'/'+loadProgress.total:''}</span>
       </div>}
 
       <div style={{display:'flex',flexDirection:'column',gap:10}}>
