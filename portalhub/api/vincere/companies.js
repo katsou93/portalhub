@@ -15,11 +15,11 @@ export default async function handler(req, res) {
   const headers = { 'id-token': token, 'x-api-key': apiKey };
   if (appId) headers['app-id'] = appId;
 
-  // ?start=0 returns 500 companies from that offset
   const start = parseInt(req.query.start || '0', 10);
   const rows = 500;
 
-  const url = 'https://' + tenant + '.vincere.io/api/v2/company/search/fl=id,name;sort=name asc?keyword=&start=' + start + '&rows=' + rows;
+  // Include status field so we can filter by Pre-Account / Account / Key Account
+  const url = 'https://' + tenant + '.vincere.io/api/v2/company/search/fl=id,name,status;sort=name asc?keyword=&start=' + start + '&rows=' + rows;
 
   try {
     const r = await fetch(url, { headers });
@@ -27,9 +27,17 @@ export default async function handler(req, res) {
     const d = await r.json();
     const items = d.result?.items || [];
     const total = d.result?.total || 0;
-    const names = items.map(c => c.name).filter(Boolean);
+
+    // Return full company objects with name + status
+    const companies = items.map(c => ({ name: c.name, status: c.status })).filter(c => c.name);
+
+    // Also collect unique statuses for debugging
+    const statuses = [...new Set(items.map(c => c.status).filter(Boolean))];
+
     return res.status(200).json({
-      names,
+      companies,
+      names: companies.map(c => c.name),
+      statuses,
       total,
       start,
       hasMore: start + rows < total,
