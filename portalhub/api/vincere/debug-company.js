@@ -9,36 +9,33 @@ export default async function handler(req, res) {
   const tenant = process.env.VINCERE_TENANT;
   const apiKey  = process.env.VINCERE_API_KEY;
   const headers = { 'id-token': token, 'x-api-key': apiKey };
+  const base = 'https://' + tenant + '.vincere.io/api/v2/company/search/fl=id,name,status;sort=name asc?';
 
-  // Search for the specific companies the user mentioned to find the right status field
-  const testNames = ['Rommelag', 'Weppler', 'Comnova', 'Honsel', 'Remmert', 'Konfigurator'];
-  const results = [];
+  // Try Solr q= queries for single-word company names
+  const names = ['Rommelag', 'Comnova', 'Remmert'];
+  const results = {};
 
-  for (const kw of testNames) {
-    const sr = await fetch(
-      'https://' + tenant + '.vincere.io/api/v2/company/search/fl=id,name,status;sort=name asc?keyword=' + encodeURIComponent(kw) + '&start=0&rows=3',
-      { headers }
-    );
-    const sd = await sr.json();
-    const items = sd.result?.items || [];
+  for (const name of names) {
+    // Try q=name:value (Solr field query)
+    const r1 = await fetch(base + 'q=name:' + name + '&start=0&rows=5', { headers });
+    const d1 = await r1.json();
 
-    for (const item of items.slice(0, 1)) {
-      const dr = await fetch('https://' + tenant + '.vincere.io/api/v2/company/' + item.id, { headers });
-      const dd = await dr.json();
-      results.push({
-        keyword: kw,
-        name: item.name,
-        id: item.id,
-        search_status: item.status,
-        stage: dd.stage,
-        stage_status: dd.stage_status,
-        status_id: dd.status_id,
-        ownership: dd.ownership,
-        company_type: dd.company_type,
-        all_keys: Object.keys(dd).join(','),
-      });
-    }
+    // Try q=company_name:value
+    const r2 = await fetch(base + 'q=company_name:' + name + '&start=0&rows=5', { headers });
+    const d2 = await r2.json();
+
+    results[name] = {
+      'q=name': { status: r1.status, items: (d1.result?.items||[]).map(c=>c.name).slice(0,3), error: d1.errors?.[0] },
+      'q=company_name': { status: r2.status, items: (d2.result?.items||[]).map(c=>c.name).slice(0,3), error: d2.errors?.[0] },
+    };
   }
 
-  return res.status(200).json({ results });
+  // Also: try loading pages in the R section (Rommelag) and C section (Comnova)
+  // by using start offset - find which page contains them
+  // Companies sorted alphabetically, R starts around 60-65% through 3796 = ~2300
+  const rPageTest = await fetch(base + 'keyword=&start=2300&rows=5', { headers });
+  const rData = await rPageTest.json();
+  results['page_at_2300'] = (rData.result?.items||[]).map(c=>c.name);
+
+  return res.status(200).json(results);
 }
