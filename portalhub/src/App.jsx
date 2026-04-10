@@ -35,22 +35,12 @@ async function fetchAI(terms) {
   return JSON.parse(d.content[0].text.replace(/```json|```/g, '').trim());
 }
 
-async function checkVincereNames(companyNames) {
-  if (!companyNames || companyNames.length === 0) return [];
-  try {
-    const unique = [...new Set(companyNames)].filter(Boolean).slice(0, 30);
-    const r = await fetch('/api/vincere/companies?names=' + encodeURIComponent(unique.join(',')));
-    if (!r.ok) return [];
-    const d = await r.json();
-    return d.names || [];
-  } catch(e) { return []; }
-}
-
 async function loadVincereCompanies() {
-  // Just check if we're connected by calling with no params
   try {
     const r = await fetch('/api/vincere/companies');
     if (r.status === 401) return null;
+    const d = await r.json();
+    if (d.names) return d;
     return { names: [], connected: true };
   } catch(e) { return null; }
 }
@@ -73,32 +63,27 @@ function fmt(d) {
   return Math.floor(diff / 7) + ' Wochen';
 }
 function mapA(a) { return { 1: 'Arbeitsstelle', 2: 'Ausbildung', 4: 'Praktikum' }[a] || 'Sonstiges'; }
-function nameMatch(a, b) {
-  if (!a || !b) return false;
-  // Normalize: lowercase, remove legal suffixes, extra spaces, special chars
+function nameMatch(baName, vincereName) {
+  if (!baName || !vincereName) return false;
   const norm = s => s.toLowerCase()
-    .replace(/gmbh & co\. ?kg|gmbh & co|gmbh co kg/g, '')
-    .replace(/\bgmbh\b|\bag\b|\b(co\.?)?kg\b|\bse\b|\bev\b|\bmbh\b|\bltd\b|\binc\b|\bcorp\b/g, '')
-    .replace(/[^a-z0-9äöüß]/g, ' ')
-    .replace(/\s+/g, ' ').trim();
+    .replace(/gmbh & co\.? kg|gmbh & co|gmbh co\.? kg/gi, '')
+    .replace(/\bgmbh\b|\bag\b|\bkg\b|\bse\b|\bev\b|\bmbh\b|\bltd\b|\binc\b|\bcorp\b|\bco\.?\b/gi, '')
+    .replace(/[^a-z0-9äöüß]/g, ' ').replace(/\s+/g, ' ').trim();
 
-  const na = norm(a), nb = norm(b);
-  if (!na || !nb) return false;
+  const a = norm(baName), b = norm(vincereName);
+  if (!a || !b) return false;
+  if (a === b) return true;
+  if (a.includes(b) || b.includes(a)) return true;
 
-  // Exact match after normalization
-  if (na === nb) return true;
-
-  // One contains the other (handles "Siemens AG München" vs "Siemens AG")
-  if (na.includes(nb) || nb.includes(na)) return true;
-
-  // Word overlap: if 80%+ of words in the shorter name match the longer
-  const wordsA = na.split(' ').filter(w => w.length > 2);
-  const wordsB = nb.split(' ').filter(w => w.length > 2);
+  // Word overlap: significant words (>3 chars) that match
+  const wordsA = a.split(' ').filter(w => w.length > 3);
+  const wordsB = b.split(' ').filter(w => w.length > 3);
+  if (!wordsA.length || !wordsB.length) return false;
+  
   const shorter = wordsA.length <= wordsB.length ? wordsA : wordsB;
   const longer  = wordsA.length <= wordsB.length ? wordsB : wordsA;
-  if (shorter.length === 0) return false;
-  const matches = shorter.filter(w => longer.some(lw => lw.startsWith(w) || w.startsWith(lw)));
-  return matches.length / shorter.length >= 0.8;
+  const matches = shorter.filter(w => longer.some(lw => lw.includes(w) || w.includes(lw)));
+  return matches.length > 0 && matches.length / shorter.length >= 0.6;
 }
 function parseJob(j) {
   return { id: j.hashId || j.refnr || Math.random().toString(36), title: j.titel || '—',
@@ -185,15 +170,17 @@ function SearchView({ names, onAdd, addingId, setSH, connected }) {
       setJobs(prev => append ? [...prev, ...parsed] : parsed);
       setTotal(d.maxErgebnisse || 0); setPage(pg); setSearched(true);
       setSH(h => [{ id:Date.now(), terms:t, hits:d.maxErgebnisse||parsed.length, wo:wo||'', time:new Date().toLocaleTimeString('de-DE',{hour:'2-digit',minute:'2-digit'}) }, ...h.slice(0,19)]);
-      // Check which companies are in Vincere (always try, API returns [] if not logged in)
+      // Check which companies from results are in Vincere
       const uniqueNames = [...new Set(parsed.map(j => j.company).filter(Boolean))];
       if (uniqueNames.length > 0) {
-        checkVincereNames(uniqueNames).then(foundInVincere => {
-          if (foundInVincere.length > 0) {
-            setConnected(true);
-            setVNames(prev => [...new Set([...prev, ...foundInVincere])]);
-          }
-        });
+        fetch('/api/vincere/companies?names=' + encodeURIComponent(uniqueNames.join(',')))
+          .then(r => r.ok ? r.json() : null)
+          .then(d => {
+            if (d && d.names && d.names.length > 0) {
+              setConnected(true);
+              setVNames(prev => [...new Set([...prev, ...d.names])]);
+            }
+          }).catch(() => {});
       }
     } catch(e) { setError(e.message); setSearched(true); }
     setLoading(false);
@@ -394,7 +381,9 @@ export default function App() {
     }
 
     loadVincereCompanies().then(d => {
-      if (d && d.connected) setConnected(true);
+      if (!d) return;
+      setConnected(true);
+      if (d.names && d.names.length > 0) setVNames(d.names);
     });
   }, []);
 
