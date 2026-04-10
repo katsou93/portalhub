@@ -474,7 +474,7 @@ export default function App() {
 
   useEffect(()=>{
     const l=document.createElement('link');l.rel='stylesheet';l.href='https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=DM+Sans:opsz,wght@9..40,300;9..40,400;9..40,500;9..40,600;9..40,700&display=swap';document.head.appendChild(l);
-    const s=document.createElement('style');s.textContent='*{box-sizing:border-box;margin:0;padding:0}body{background:#080F1C;font-family:\'DM Sans\',sans-serif;overflow:hidden}@keyframes spin{to{transform:rotate(360deg)}}input::placeholder{color:rgba(232,238,248,0.26)}input:focus{border-color:rgba(75,142,240,0.55)!important}::-webkit-scrollbar{width:5px}::-webkit-scrollbar-thumb{background:rgba(255,255,255,0.1);border-radius:100px}';document.head.appendChild(s);
+    const s=document.createElement('style');s.textContent='*{box-sizing:border-box;margin:0;padding:0}body{background:#080F1C;font-family:"DM Sans",sans-serif;overflow:hidden}@keyframes spin{to{transform:rotate(360deg)}}input::placeholder{color:rgba(232,238,248,0.26)}input:focus{border-color:rgba(75,142,240,0.55)!important}::-webkit-scrollbar{width:5px}::-webkit-scrollbar-thumb{background:rgba(255,255,255,0.1);border-radius:100px}';document.head.appendChild(s);
     const p=new URLSearchParams(window.location.search);
     const crm=p.get('crm');
     if(crm)window.history.replaceState({},'','/');
