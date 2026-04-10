@@ -15,33 +15,32 @@ export default async function handler(req, res) {
   const headers = { 'id-token': token, 'x-api-key': apiKey };
   if (appId) headers['app-id'] = appId;
 
-  // Try multiple query syntaxes until one works
-  const queries = [
-    'q=name:*&start=0&rows=500',
-    'q=*:*&start=0&rows=500',
-    'q=name:(*)&start=0&rows=500',
-    'q=id:*&start=0&rows=500',
-    'keyword=&start=0&rows=500',
-  ];
+  // GET /api/vincere/companies?names=Bosch,Siemens,Festo
+  const { names } = req.query;
 
-  const base = 'https://' + tenant + '.vincere.io/api/v2/company/search/fl=id,name,status;sort=name asc?';
+  if (names) {
+    // Check specific company names - search each one individually
+    const nameList = names.split(',').map(n => n.trim()).filter(Boolean).slice(0, 30);
+    const found = [];
 
-  for (const q of queries) {
-    try {
-      const r = await fetch(base + q, { headers });
-      const text = await r.text();
-      if (r.ok) {
-        const data = JSON.parse(text);
-        const items = data.result || data.results || data.items || [];
-        const names = [...new Set(items.map(c => c.name || '').filter(Boolean))];
-        console.log('[companies] worked with:', q, '| count:', names.length);
-        return res.status(200).json({ names, total: names.length, query_used: q });
-      }
-      console.log('[companies] failed:', q, r.status, text.substring(0,100));
-    } catch(e) {
-      console.log('[companies] error:', q, e.message);
+    for (const name of nameList) {
+      try {
+        const encoded = encodeURIComponent(name.replace(/['"]/g, ''));
+        const url = 'https://' + tenant + '.vincere.io/api/v2/company/search/fl=id,name;sort=name asc?q=name:' + encoded + '&start=0&rows=5';
+        const r = await fetch(url, { headers });
+        if (r.ok) {
+          const d = await r.json();
+          const items = d.result || d.results || d.items || [];
+          if (items.length > 0) {
+            found.push(...items.map(c => c.name).filter(Boolean));
+          }
+        }
+      } catch(e) {}
     }
+
+    return res.status(200).json({ names: found, checked: nameList.length });
   }
 
-  return res.status(500).json({ error: 'All query syntaxes failed' });
+  // No names param - return empty (we no longer try to load all)
+  return res.status(200).json({ names: [], total: 0 });
 }
