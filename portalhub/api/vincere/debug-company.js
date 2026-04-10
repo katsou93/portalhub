@@ -10,28 +10,30 @@ export default async function handler(req, res) {
   const apiKey  = process.env.VINCERE_API_KEY;
   const headers = { 'id-token': token, 'x-api-key': apiKey };
 
-  // Get 20 companies from search with IDs
-  const searchUrl = 'https://' + tenant + '.vincere.io/api/v2/company/search/fl=id,name,status;sort=name asc?keyword=&start=0&rows=20';
-  const sr = await fetch(searchUrl, { headers });
-  const sd = await sr.json();
-  const items = sd.result?.items || [];
+  // Sample companies from different parts of alphabet to find all stage_status values
+  const starts = [0, 500, 1000, 1500, 2000, 2500, 3000, 3500];
+  const allStatuses = {};
   
-  // Fetch detail for first 5 to see stage/stage_status values
-  const details = [];
-  for (const item of items.slice(0, 8)) {
-    const dr = await fetch('https://' + tenant + '.vincere.io/api/v2/company/' + item.id, { headers });
-    const dd = await dr.json();
-    details.push({
-      name: item.name,
-      search_status: item.status,
-      stage: dd.stage,
-      stage_status: dd.stage_status,
-      status_id: dd.status_id,
-    });
+  for (const start of starts) {
+    const sr = await fetch(
+      'https://' + tenant + '.vincere.io/api/v2/company/search/fl=id,name,status;sort=name asc?keyword=&start=' + start + '&rows=50',
+      { headers }
+    );
+    const sd = await sr.json();
+    const items = sd.result?.items || [];
+    
+    // Fetch detail for first 3 items of each page
+    for (const item of items.slice(0, 3)) {
+      const dr = await fetch('https://' + tenant + '.vincere.io/api/v2/company/' + item.id, { headers });
+      const dd = await dr.json();
+      const key = (dd.stage || 'null') + '/' + (dd.stage_status || 'null');
+      allStatuses[key] = (allStatuses[key] || 0) + 1;
+    }
   }
   
-  const allStageStatuses = [...new Set(details.map(d => d.stage_status).filter(Boolean))];
-  const allStages = [...new Set(details.map(d => d.stage).filter(Boolean))];
+  // Also check meta endpoint for stage statuses
+  const metaR = await fetch('https://' + tenant + '.vincere.io/api/v2/meta/company/stage-status', { headers });
+  const metaText = await metaR.text();
   
-  return res.status(200).json({ details, allStageStatuses, allStages });
+  return res.status(200).json({ allStatuses, meta: metaText.substring(0, 500) });
 }
