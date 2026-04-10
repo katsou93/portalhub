@@ -375,21 +375,47 @@ function MonitoringView({ connected }) {
   const [scanningAll, setScanningAll] = useState(false);
   const [scanProgress, setScanProgress] = useState({ done: 0, total: 0 });
 
+  const [loadProgress, setLoadProgress] = useState({ processed: 0, total: 0 });
+
   useEffect(() => {
     if (!connected) return;
     setLoading(true);
-    fetch('/api/vincere/clients')
-      .then(r => r.ok ? r.json() : null)
-      .then(d => {
-        if (!d) return;
-        setClients(d.clients || []);
-        setGrouped(d.grouped || {});
-        // Open all groups by default
-        const open = {};
-        Object.keys(d.grouped || {}).forEach(k => { open[k] = true; });
-        setOpenGroups(open);
-      })
-      .finally(() => setLoading(false));
+    
+    // Load clients progressively batch by batch
+    const loadBatch = async (batch, accumulated) => {
+      try {
+        const r = await fetch('/api/vincere/clients?batch=' + batch);
+        if (!r.ok) { setLoading(false); return; }
+        const d = await r.json();
+        
+        const allClients = [...accumulated, ...(d.clients || [])];
+        setLoadProgress({ processed: d.processed || 0, total: d.totalCompanies || 0 });
+        
+        // Regroup
+        const newGrouped = {};
+        for (const c of allClients) {
+          const key = c.status || 'Kein Status';
+          if (!newGrouped[key]) newGrouped[key] = [];
+          newGrouped[key].push(c);
+        }
+        setClients(allClients);
+        setGrouped(newGrouped);
+        setOpenGroups(prev => {
+          const open = { ...prev };
+          Object.keys(newGrouped).forEach(k => { if (!(k in open)) open[k] = true; });
+          return open;
+        });
+
+        if (d.hasMore) {
+          // Continue loading next batch
+          await loadBatch(d.nextBatch, allClients);
+        } else {
+          setLoading(false);
+        }
+      } catch(e) { setLoading(false); }
+    };
+
+    loadBatch(0, []);
   }, [connected]);
 
   const scanCompany = async (company) => {
@@ -474,7 +500,12 @@ function MonitoringView({ connected }) {
         </div>
       </div>
 
-      {loading && <div style={{ textAlign:'center', padding:40, color:C.muted, display:'flex', alignItems:'center', justifyContent:'center', gap:12 }}><Spin /> Lade Kunden aus Vincere…</div>}
+      {loading && <div style={{ padding:'12px 18px', background:C.bg2, border:'1px solid '+C.border2, borderRadius:12, display:'flex', alignItems:'center', gap:12, marginBottom:12 }}>
+        <Spin />
+        <span style={{ fontSize:13, color:C.muted }}>
+          Lade Kunden aus Vincere… {loadProgress.processed > 0 ? loadProgress.processed + ' / ' + loadProgress.total + ' geprüft · ' + clients.length + ' mit Status gefunden' : ''}
+        </span>
+      </div>}
 
       <div style={{ display:'flex', flexDirection:'column', gap:10 }}>
         {sortedGroups.map(status => {
