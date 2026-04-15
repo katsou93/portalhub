@@ -1,69 +1,83 @@
-import { kv } from '@vercel/kv';
+import { Redis } from '@upstash/redis';
 
 const CACHE_KEY   = 'vincere_clients_v2';
 const IDS_KEY     = 'vincere_ids_v2';
-const CACHE_TTL   = 86400; // 24 hours
+const PARTIAL_KEY = 'vincere_partial_v2';
 
-async function getVincereHeaders(req) {
-  const cookies = Object.fromEntries(
+function getRedis() {
+  return new Redis({
+    url:   process.env.UPSTASH_REDIS_REST_URL,
+    token: process.env.UPSTASH_REDIS_REST_TOKEN,
+  });
+}
+
+function parseCookies(req) {
+  return Object.fromEntries(
     (req.headers.cookie || '').split(';').map(c => c.trim()).filter(Boolean)
-      .map(c => { const i = c.indexOf('='); return [c.slice(0,i).trim(), c.slice(i+1)]; })
+      .map(c => { const i = c.indexOf('='); return [k.slice(0,i).trim(), c.slice(i+1)]; })
   );
-  const token  = cookies.vincere_token;
-  const tenant = process.env.VINCERE_TENANT;
-  const apiKey = process.env.VINCERE_API_KEY;
-  const appId  = process.env.VINCERE_APP_ID;
-  const headers = { 'id-token': token, 'x-api-key': apiKey };
-  if (appId) headers['app-id'] = appId;
-  return { token, tenant, headers };
 }
 
 export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
   if (req.method === 'OPTIONS') return res.status(200).end();
 
-  const cookies = Object.fromEntries(
-    (req.headers.cookie || '').split(';').map(c => c.trim()).filter(Boolean)
-      .map(c => { const i = c.indexOf('='); return [c.slice(0,i).trim(), c.slice(i+1)]; })
-  );
-  if (!cookies.vincere_token) return res.status(401).json({ error: 'not_authenticated' });
-
+  const cookieStr = req.headers.cookie || '';
+  const cookies = {};
+  cookieStr.split(';').forEach(c => {
+    const trimmed = c.trim();
+    const idx = trimmed.indexOf('=');
+    if (idx > 0) cookies[trimmed.slice(0,idx).trim()] = trimmed.slice(idx+1);
+  });
+  const token  = cookies.vincere_token;
+  const tenant = process.env.VINCERE_TENANT;
+  const apiKey = process.env.VINCERE_API_KEY;
+  const appId  = process.env.VINCERE_APP_ID;
   const { action, batch } = req.query;
 
-  // ─── ACTION: READ CACHE ───────────────────────────────────────────────────
+  function vincereHeaders() {
+    const h = { 'id-token': token, 'x-api-key': apiKey };
+    if (appId) h['app-id'] = appId;
+    return h;
+  }
+
+  // ─── READ CACHE ───────────────────────────────────────────────────────────
   if (!action) {
+    if (!token) return res.status(401).json({ error: 'not_authenticated' });
     try {
-      const cached = await kv.get(CACHE_KEY);
+      const redis  = getRedis();
+      const cached = await redis.get(CACHE_KEY);
       if (cached) {
-        return res.status(200).json({ clients: cached.clients, grouped: cached.grouped, fromCache: true, cachedAt: cached.at });
+        const data = typeof cached === 'string' ? JSON.parse(cached) : cached;
+        return res.status(200).json({ clients: data.clients, grouped: data.grouped, fromCache: true });
       }
-      // Check if IDs are loaded (init done but details still loading)
-      const ids = await kv.get(IDS_KEY);
-      if (ids) return res.status(200).json({ needsLoad: true, totalIds: ids.length, message: 'IDs loaded, details loading…' });
-      return res.status(200).json({ needsInit: true, message: 'Cache empty, run init first' });
+      const ids = await redis.get(IDS_KEY);
+      if (ids) {
+        const arr = typeof ids === 'string' ? JSON.parse(ids) : ids;
+        return res.status(200).json({ needsLoad: true, totalIds: arr.length });
+      }
+      return res.status(200).json({ needsInit: true });
     } catch(e) {
       return res.status(200).json({ needsInit: true, error: e.message });
     }
   }
 
-  // ─── ACTION: INIT — Load all IDs ─────────────────────────────────────────
+  if (!token) return res.status(401).json({ error: 'not_authenticated' });
+
+  // ─── INIT: Load all IDs ───────────────────────────────────────────────────
   if (action === 'init') {
-    const { token, tenant, headers } = await getVincereHeaders(req);
-    if (!token) return res.status(401).json({ error: 'not_authenticated' });
-
     try {
-      // Clear old cache
-      await kv.del(CACHE_KEY);
-      await kv.del(IDS_KEY);
+      const redis = getRedis();
+      await redis.del(CACHE_KEY);
+      await redis.del(IDS_KEY);
+      await redis.del(PARTIAL_KEY);
 
-      // Load all company IDs from search
       const allIds = [];
       let start = 0, total = 9999;
-
       while (start < total) {
         const r = await fetch(
           'https://' + tenant + '.vincere.io/api/v2/company/search/fl=id,name,status;sort=name asc?keyword=&start=' + start + '&rows=500',
-          { headers }
+          { headers: vincereHeaders() }
         );
         if (!r.ok) break;
         const d = await r.json();
@@ -74,35 +88,29 @@ export default async function handler(req, res) {
         start += 500;
       }
 
-      // Store IDs in KV for 25h
-      await kv.set(IDS_KEY, allIds, { ex: 90000 });
+      await redis.set(IDS_KEY, JSON.stringify(allIds), { ex: 90000 });
       return res.status(200).json({ ok: true, totalIds: allIds.length });
     } catch(e) {
       return res.status(500).json({ error: e.message });
     }
   }
 
-  // ─── ACTION: LOAD BATCH — Fetch details for batch N ───────────────────────
+  // ─── LOAD BATCH ───────────────────────────────────────────────────────────
   if (action === 'load') {
-    const { token, tenant, headers } = await getVincereHeaders(req);
-    if (!token) return res.status(401).json({ error: 'not_authenticated' });
-
     const batchN    = parseInt(batch || '0', 10);
     const batchSize = 25;
-
     try {
-      // Get IDs from KV
-      const allIds = await kv.get(IDS_KEY);
-      if (!allIds) return res.status(400).json({ error: 'Run init first' });
+      const redis  = getRedis();
+      const raw    = await redis.get(IDS_KEY);
+      if (!raw) return res.status(400).json({ error: 'Run init first' });
+      const allIds  = typeof raw === 'string' ? JSON.parse(raw) : raw;
+      const slice   = allIds.slice(batchN * batchSize, (batchN + 1) * batchSize);
+      const hasMore = (batchN + 1) * batchSize < allIds.length;
 
-      const batchIds = allIds.slice(batchN * batchSize, (batchN + 1) * batchSize);
-      const hasMore  = (batchN + 1) * batchSize < allIds.length;
-
-      // Fetch details in parallel
       const newClients = (await Promise.all(
-        batchIds.map(async item => {
+        slice.map(async item => {
           try {
-            const r = await fetch('https://' + tenant + '.vincere.io/api/v2/company/' + item.id, { headers });
+            const r = await fetch('https://' + tenant + '.vincere.io/api/v2/company/' + item.id, { headers: vincereHeaders() });
             if (!r.ok) return null;
             const d = await r.json();
             if (!d.stage_status) return null;
@@ -111,38 +119,38 @@ export default async function handler(req, res) {
         })
       )).filter(Boolean);
 
-      // Get existing partial cache and append
-      const existing = await kv.get(CACHE_KEY + '_partial') || [];
-      const allClients = [...existing, ...newClients];
+      const existingRaw = await redis.get(PARTIAL_KEY);
+      const existing    = existingRaw ? (typeof existingRaw === 'string' ? JSON.parse(existingRaw) : existingRaw) : [];
+      const allClients  = [...existing, ...newClients];
 
       if (!hasMore) {
-        // Build final grouped cache
         const grouped = {};
         for (const c of allClients) {
           const k = c.status || 'Kein Status';
           if (!grouped[k]) grouped[k] = [];
           grouped[k].push(c);
         }
-        await kv.set(CACHE_KEY, { clients: allClients, grouped, at: Date.now() }, { ex: CACHE_TTL });
-        await kv.del(CACHE_KEY + '_partial');
-        await kv.del(IDS_KEY);
+        await redis.set(CACHE_KEY, JSON.stringify({ clients: allClients, grouped, at: Date.now() }), { ex: 86400 });
+        await redis.del(PARTIAL_KEY);
+        await redis.del(IDS_KEY);
         return res.status(200).json({ done: true, total: allClients.length, hasMore: false });
-      } else {
-        await kv.set(CACHE_KEY + '_partial', allClients, { ex: 90000 });
-        return res.status(200).json({ done: false, hasMore: true, nextBatch: batchN + 1, loaded: allClients.length, totalIds: allIds.length, processed: (batchN + 1) * batchSize });
       }
+
+      await redis.set(PARTIAL_KEY, JSON.stringify(allClients), { ex: 90000 });
+      return res.status(200).json({ done: false, hasMore: true, nextBatch: batchN + 1, loaded: allClients.length, totalIds: allIds.length, processed: (batchN + 1) * batchSize });
     } catch(e) {
       return res.status(500).json({ error: e.message });
     }
   }
 
-  // ─── ACTION: CLEAR CACHE ─────────────────────────────────────────────────
+  // ─── CLEAR ────────────────────────────────────────────────────────────────
   if (action === 'clear') {
     try {
-      await kv.del(CACHE_KEY);
-      await kv.del(IDS_KEY);
-      await kv.del(CACHE_KEY + '_partial');
-      return res.status(200).json({ ok: true, message: 'Cache cleared' });
+      const redis = getRedis();
+      await redis.del(CACHE_KEY);
+      await redis.del(IDS_KEY);
+      await redis.del(PARTIAL_KEY);
+      return res.status(200).json({ ok: true });
     } catch(e) {
       return res.status(500).json({ error: e.message });
     }
