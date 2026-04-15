@@ -261,58 +261,64 @@ function MonitoringView({connected}) {
     const applyClients = (clients) => {
       const grouped = {};
       for(const c of clients){const k=c.status||'Kein Status';if(!grouped[k])grouped[k]=[];grouped[k].push(c);}
-      setClients(clients);
-      setGrouped(grouped);
+      setClients(clients);setGrouped(grouped);
       setOpenGroups(prev=>{const o={...prev};Object.keys(grouped).forEach(k=>{if(!(k in o))o[k]=true;});return o;});
     };
 
     const run = async () => {
-      // 1. Check cache
+      // 1. Check cache first
       const cr = await fetch('/api/vincere/clients');
       const cd = await cr.json();
       if(cd.fromCache && cd.clients){ applyClients(cd.clients); setLoading(false); return; }
 
-      // 2. Load all IDs in parallel batches of 20
-      setLoadProgress({processed:0,total:0,phase:'Lade Firmenliste…'});
+      // 2. Load first page to get total
+      setLoadProgress({processed:0,total:0,phase:'Lade Firmenliste aus Vincere…'});
       const firstR = await fetch('/api/vincere/clients?action=ids&start=0');
       const firstD = await firstR.json();
       const total = firstD.total || 0;
-      const pageSize = 10; // Vincere returns ~10 per page
-      const pages = Math.ceil(total / pageSize);
+      const pages = Math.ceil(total / 10);
+      const allIds = [...(firstD.items||[])];
 
-      setLoadProgress({processed:0,total:pages,phase:'Lade '+total+' Firmen-IDs…'});
-
-      const allIds = [...(firstD.items || [])];
-      // Load remaining pages in parallel batches of 30
-      const batchSize = 30;
-      for(let b = 1; b < pages; b += batchSize) {
-        const batch = [];
-        for(let p = b; p < Math.min(b+batchSize, pages); p++) batch.push(p);
-        const results = await Promise.all(batch.map(p => fetch('/api/vincere/clients?action=ids&start='+(p*pageSize)).then(r=>r.json()).catch(()=>({items:[]}))));
-        results.forEach(r => allIds.push(...(r.items||[])));
-        setLoadProgress({processed:Math.min(b+batchSize, pages),total:pages,phase:'IDs geladen: '+allIds.length+'/'+total});
+      // 3. Load ALL remaining ID pages - 30 concurrent requests at a time
+      for(let b=1; b<pages; b+=30){
+        const offsets=[];
+        for(let p=b;p<Math.min(b+30,pages);p++) offsets.push(p*10);
+        const results = await Promise.all(offsets.map(s=>
+          fetch('/api/vincere/clients?action=ids&start='+s).then(r=>r.json()).catch(()=>({items:[]}))
+        ));
+        results.forEach(r=>allIds.push(...(r.items||[])));
+        setLoadProgress({processed:Math.min(b+30,pages),total:pages,phase:'IDs: '+allIds.length+'/'+total});
       }
 
-      // 3. Fetch details for all companies (also in parallel batches of 30)
-      setLoadProgress({processed:0,total:allIds.length,phase:'Lade Firmen-Details…'});
+      // 4. Batch detail calls - send 25 IDs per request, 6 requests in parallel
+      // Only companies with status_id 5,6,8,9,10,13 are returned by the server
+      setLoadProgress({processed:0,total:allIds.length,phase:'Analysiere Firmen-Status…'});
       const clients = [];
-      const detailBatch = 30;
-      for(let i = 0; i < allIds.length; i += detailBatch) {
-        const chunk = allIds.slice(i, i+detailBatch);
-        const details = await Promise.all(chunk.map(c => fetch('/api/vincere/clients?action=detail&id='+c.id).then(r=>r.json()).catch(()=>null)));
-        details.forEach(d => { if(d && !d.skip && d.status) clients.push(d); });
-        setLoadProgress({processed:i+chunk.length,total:allIds.length,phase:clients.length+' Kunden mit Status gefunden…'});
-        applyClients([...clients]);
+      const chunkSize = 25;
+      const concurrent = 6;
+      const chunks = [];
+      for(let i=0;i<allIds.length;i+=chunkSize) chunks.push(allIds.slice(i,i+chunkSize));
+
+      for(let b=0;b<chunks.length;b+=concurrent){
+        const batch = chunks.slice(b,b+concurrent);
+        const results = await Promise.all(batch.map(chunk=>{
+          const ids = chunk.map(c=>c.id).join(',');
+          return fetch('/api/vincere/clients?action=batch&ids='+ids).then(r=>r.json()).catch(()=>({clients:[]}));
+        }));
+        results.forEach(r=>(r.clients||[]).forEach(c=>clients.push(c)));
+        const processed = Math.min((b+concurrent)*chunkSize, allIds.length);
+        setLoadProgress({processed,total:allIds.length,phase:clients.length+' Kunden gefunden…'});
+        if(clients.length>0) applyClients([...clients]);
       }
 
-      // 4. Save to cache
-      if(clients.length > 0) {
-        await fetch('/api/vincere/clients?action=save', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({clients}) });
+      // 5. Save final result to Redis cache (24h)
+      if(clients.length>0){
+        await fetch('/api/vincere/clients?action=save',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({clients})});
       }
       setLoading(false);
     };
 
-    run().catch(()=>setLoading(false));
+    run().catch(e=>{ console.error(e); setLoading(false); });
   },[connected]);
 
   const scanCompany=async(company)=>{
