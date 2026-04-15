@@ -44,9 +44,9 @@ async function loadVincereCompanies() {
   } catch(e) { return null; }
 }
 
-async function addToVincere(name) {
+async function addToVincere(name, city, postcode, country) {
   try {
-    const r = await fetch('/api/vincere/add-company', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({name}) });
+    const r = await fetch('/api/vincere/add-company', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({name, city, postcode, country}) });
     return r.ok;
   } catch(e) { return false; }
 }
@@ -73,6 +73,7 @@ function nameMatch(a,b) {
 function parseJob(j) {
   return { id:j.hashId||j.refnr||Math.random().toString(36), title:j.titel||'—',
     company:j.arbeitgeber||'—', city:j.arbeitsort?.ort||'—',
+    postcode:j.arbeitsort?.plz||'', country:'DE',
     posted:fmt(j.aktuelleVeroeffentlichungsdatum), type:mapA(j.angebotsart), refnr:j.refnr };
 }
 
@@ -112,7 +113,7 @@ function JobCard({job,names,onAdd,addingId}) {
       <div style={{display:'flex',alignItems:'center',gap:7,flexShrink:0}}>
         <span style={{fontSize:11,color:C.faint}}>{job.posted}</span>
         <span style={{fontSize:10.5,background:C.bg3,border:'1px solid '+C.border,color:C.faint,padding:'2px 7px',borderRadius:5}}>{job.type}</span>
-        <VBadge company={job.company} names={names} onAdd={()=>onAdd(job.company)} adding={addingId===job.company} />
+        <VBadge company={job.company} names={names} onAdd={()=>onAdd(job.company, job.city, job.postcode, job.country)} adding={addingId===job.company} />
       </div>
     </div>
   );
@@ -152,9 +153,10 @@ function SearchView({names,onAdd,addingId,setSH,connected}) {
   const run=()=>{const v=input.trim();const all=v&&!terms.includes(v)?[...terms,v]:terms;if(v){setTerms(all);setInput('');}if(all.length)doSearch(all,1,false);};
 
   const addAll=async()=>{
-    const newC=[...new Set(jobs.map(j=>j.company).filter(c=>c&&c!=='—'&&!names.some(n=>nameMatch(n,c))))];
-    if(!newC.length)return; setBulkAdding(true); setBulkDone(0);
-    for(const n of newC){await onAdd(n);setBulkDone(d=>d+1);}
+    const newJobs=jobs.filter(j=>j.company&&j.company!=='—'&&!names.some(n=>nameMatch(n,j.company)));
+    const seen=new Set(); const unique=newJobs.filter(j=>{if(seen.has(j.company))return false;seen.add(j.company);return true;});
+    if(!unique.length)return; setBulkAdding(true); setBulkDone(0);
+    for(const j of unique){await onAdd(j.company,j.city,j.postcode,j.country);setBulkDone(d=>d+1);}
     setBulkAdding(false);
   };
 
@@ -522,10 +524,11 @@ export default function App() {
     });
   },[]);
 
-  const handleAdd=async(name)=>{
+  const handleAdd=async(name, city, postcode, country)=>{
     setAddingId(name);
-    const ok=await addToVincere(name);
-    if(ok){setVNames(p=>[...p,name]);setActs(a=>[{id:Date.now(),text:name+' → Vincere',time:new Date().toLocaleTimeString('de-DE',{hour:'2-digit',minute:'2-digit'}),col:C.violet},...a]);}
+    const ok=await addToVincere(name, city, postcode, country);
+    if(ok){setVNames(p=>[...p,name]);setActs(a=>[{id:Date.now(),text:name+' → Vincere hinzugefügt',time:new Date().toLocaleTimeString('de-DE',{hour:'2-digit',minute:'2-digit'}),col:C.violet},...a]);}
+    else{setActs(a=>[{id:Date.now(),text:'⚠ '+name+' konnte nicht hinzugefügt werden',time:new Date().toLocaleTimeString('de-DE',{hour:'2-digit',minute:'2-digit'}),col:C.amber},...a]);}
     setAddingId(null);return ok;
   };
 
