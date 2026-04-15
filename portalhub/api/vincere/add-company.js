@@ -13,42 +13,27 @@ export default async function handler(req, res) {
   const tenant = process.env.VINCERE_TENANT;
   const apiKey = process.env.VINCERE_API_KEY;
   const appId  = process.env.VINCERE_APP_ID;
-  const headers = Object.assign(
-    { 'Content-Type': 'application/json', 'id-token': token, 'x-api-key': apiKey },
-    appId ? { 'app-id': appId } : {}
-  );
+  const headers = { 'Content-Type': 'application/json', 'id-token': token, 'x-api-key': apiKey };
+  if (appId) headers['app-id'] = appId;
 
-  const { name, city, postcode, country } = req.body || {};
+  const { name } = req.body || {};
   if (!name) return res.status(400).json({ error: 'name required' });
 
-  // Build payload - Vincere uses company_name field
+  // Step 1: Create company with just the name (minimal payload)
   const payload = { company_name: name };
-
-  // Add location if we have at least a city
-  if (city) {
-    payload.head_quarter = {
-      location_name: [postcode, city].filter(Boolean).join(' '),
-      city: city,
-      postcode: postcode || '',
-      country: country || 'DE',
-    };
-  }
 
   try {
     const r = await fetch('https://' + tenant + '.vincere.io/api/v2/company', {
-      method: 'POST',
-      headers,
-      body: JSON.stringify(payload),
+      method: 'POST', headers, body: JSON.stringify(payload),
     });
     const data = await r.json();
-
-    // Log error details for debugging
     if (!r.ok) {
-      console.error('[add-company] Vincere error', r.status, JSON.stringify(data));
+      // Return the actual Vincere error so frontend can show it
+      return res.status(200).json({ ok: false, vincereError: data, statusCode: r.status });
     }
-
-    return res.status(r.status).json(data);
+    // Company created - return the new company ID
+    return res.status(200).json({ ok: true, id: data.id, name: data.company_name });
   } catch (e) {
-    return res.status(500).json({ error: e.message });
+    return res.status(500).json({ ok: false, error: e.message });
   }
 }
