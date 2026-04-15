@@ -10,28 +10,25 @@ export default async function handler(req, res) {
   const apiKey = process.env.VINCERE_API_KEY;
   const headers = { 'id-token': token, 'x-api-key': apiKey };
 
-  // Search for each specific company by name keyword
-  const searches = ['Rommelag', 'Weppler', 'Comnova', 'Honsel', 'Konfigurator'];
-  const results = {};
+  // Direct IDs from user - each has a known CRM status label
+  const companies = [
+    { id: 15537, label: 'HOT - PRIO',       name: 'Rommelag' },
+    { id: 15473, label: 'Upload',            name: 'Weppler Filter' },
+    { id: 18243, label: 'Hot Lead',          name: 'Paul Tech AG' },
+    { id: 18248, label: '4 - Pre Account',   name: 'Honsel Umformtechnik' },
+    { id: 14533, label: '2 - Key Account',   name: 'Dein-Konfigurator' },
+    { id: 14625, label: '3 - Account',       name: 'Remmert GmbH' },
+  ];
 
-  for (const kw of searches) {
-    // Get IDs from first page
-    const sr = await fetch(
-      'https://' + tenant + '.vincere.io/api/v2/company/search/fl=id,name;sort=name asc?keyword=' + encodeURIComponent(kw) + '&start=0&rows=500',
-      { headers }
-    );
-    const sd = await sr.json();
-    const items = sd.result?.items || [];
-    
-    // For each result, get full detail
-    const details = await Promise.all(items.slice(0,3).map(async item => {
-      const dr = await fetch('https://' + tenant + '.vincere.io/api/v2/company/' + item.id, { headers });
-      const dd = await dr.json();
-      return { id: item.id, name: dd.company_name, status_id: dd.status_id };
-    }));
-    
-    results[kw] = details;
-  }
+  const results = await Promise.all(companies.map(async c => {
+    const r = await fetch('https://' + tenant + '.vincere.io/api/v2/company/' + c.id, { headers });
+    const d = await r.json();
+    return { ...c, status_id: d.status_id, stage_status: d.stage_status, company_name: d.company_name };
+  }));
 
-  return res.status(200).json(results);
+  // Build the mapping table
+  const mapping = {};
+  results.forEach(r => { if (r.status_id) mapping[r.status_id] = r.label; });
+
+  return res.status(200).json({ mapping, details: results });
 }
