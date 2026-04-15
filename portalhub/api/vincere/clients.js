@@ -76,7 +76,7 @@ export default async function handler(req, res) {
       let start = 0, total = 9999;
       while (start < total) {
         const r = await fetch(
-          'https://' + tenant + '.vincere.io/api/v2/company/search/fl=id,name?keyword=&start=' + start + '&rows=500',
+          'https://' + tenant + '.vincere.io/api/v2/company/search/fl=id,name;sort=name asc?keyword=&start=' + start + '&rows=500',
           { headers: vincereHeaders() }
         );
         if (!r.ok) {
@@ -156,7 +156,7 @@ export default async function handler(req, res) {
   if (action === 'debug') {
     // Test with rows=500 to see how many items come back
     const r = await fetch(
-      'https://' + tenant + '.vincere.io/api/v2/company/search/fl=id,name?keyword=&start=0&rows=500',
+      'https://' + tenant + '.vincere.io/api/v2/company/search/fl=id,name;sort=name asc?keyword=&start=0&rows=500',
       { headers: vincereHeaders() }
     );
     const text = await r.text();
