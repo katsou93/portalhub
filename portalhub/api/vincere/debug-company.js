@@ -10,31 +10,27 @@ export default async function handler(req, res) {
   const apiKey = process.env.VINCERE_API_KEY;
   const headers = { 'id-token': token, 'x-api-key': apiKey };
 
-  // Try to get the status list from Vincere meta API
-  const results = {};
-
-  // Try different meta endpoints
-  const metaUrls = [
-    '/api/v2/meta/company/status',
-    '/api/v2/meta/company',
-    '/api/v2/meta/lookup/company-status',
-    '/api/v2/meta/lookup/status',
-  ];
-
-  for (const path of metaUrls) {
-    const r = await fetch('https://' + tenant + '.vincere.io' + path, { headers });
-    const text = await r.text();
-    results[path] = { status: r.status, body: text.substring(0, 300) };
+  // Load 5 pages of IDs (50 companies) and get their status_id
+  const allIds = [];
+  for (let start = 0; start < 50; start += 10) {
+    const r = await fetch(
+      'https://' + tenant + '.vincere.io/api/v2/company/search/fl=id,name;sort=name asc?keyword=&start=' + start + '&rows=500',
+      { headers }
+    );
+    const d = await r.json();
+    allIds.push(...(d.result?.items || []).map(c => c.id));
   }
 
-  // Also sample companies with different status_ids to map them
-  const testIds = [14625, 14870]; // status_id 6 and 1
-  const samples = [];
-  for (const id of testIds) {
+  // Get details for all 50
+  const details = await Promise.all(allIds.map(async id => {
     const r = await fetch('https://' + tenant + '.vincere.io/api/v2/company/' + id, { headers });
     const d = await r.json();
-    samples.push({ id, name: d.company_name, status_id: d.status_id, stage_status: d.stage_status });
-  }
+    return { id, name: d.company_name, status_id: d.status_id };
+  }));
 
-  return res.status(200).json({ metaResults: results, samples });
+  // Build unique status_id map
+  const statusMap = {};
+  details.forEach(d => { if (d.status_id) statusMap[d.status_id] = (statusMap[d.status_id] || 0) + 1; });
+
+  return res.status(200).json({ statusMap, details: details.slice(0, 10) });
 }
