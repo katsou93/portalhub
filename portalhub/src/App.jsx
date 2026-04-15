@@ -258,66 +258,61 @@ function MonitoringView({connected}) {
     setLoading(true);
     setLoadProgress({processed:0,total:0,phase:'Prüfe Cache…'});
 
-    const applyClients = (clients, grouped) => {
+    const applyClients = (clients) => {
+      const grouped = {};
+      for(const c of clients){const k=c.status||'Kein Status';if(!grouped[k])grouped[k]=[];grouped[k].push(c);}
       setClients(clients);
       setGrouped(grouped);
-      setOpenGroups(prev=>{
-        const o={...prev};
-        Object.keys(grouped).forEach(k=>{if(!(k in o))o[k]=true;});
-        return o;
-      });
+      setOpenGroups(prev=>{const o={...prev};Object.keys(grouped).forEach(k=>{if(!(k in o))o[k]=true;});return o;});
     };
 
-    const runLoad = async (batch, totalIds) => {
-      try {
-        setLoadProgress({processed:batch*25,total:totalIds,phase:'Lade Details…'});
-        const r = await fetch('/api/vincere/clients?action=load&batch='+batch);
-        if(!r.ok){setLoading(false);return;}
-        const d = await r.json();
-        if(d.done){
-          // Final batch - read from cache
-          const fr = await fetch('/api/vincere/clients');
-          const fd = await fr.json();
-          if(fd.clients) applyClients(fd.clients, fd.grouped||{});
-          setLoading(false);
-        } else {
-          setLoadProgress({processed:d.processed||0,total:d.totalIds||0,phase:'Lade Details… ('+d.loaded+' mit Status gefunden)'});
-          runLoad(d.nextBatch, d.totalIds);
-        }
-      } catch(e){setLoading(false);}
+    const run = async () => {
+      // 1. Check cache
+      const cr = await fetch('/api/vincere/clients');
+      const cd = await cr.json();
+      if(cd.fromCache && cd.clients){ applyClients(cd.clients); setLoading(false); return; }
+
+      // 2. Load all IDs in parallel batches of 20
+      setLoadProgress({processed:0,total:0,phase:'Lade Firmenliste…'});
+      const firstR = await fetch('/api/vincere/clients?action=ids&start=0');
+      const firstD = await firstR.json();
+      const total = firstD.total || 0;
+      const pageSize = 10; // Vincere returns ~10 per page
+      const pages = Math.ceil(total / pageSize);
+
+      setLoadProgress({processed:0,total:pages,phase:'Lade '+total+' Firmen-IDs…'});
+
+      const allIds = [...(firstD.items || [])];
+      // Load remaining pages in parallel batches of 30
+      const batchSize = 30;
+      for(let b = 1; b < pages; b += batchSize) {
+        const batch = [];
+        for(let p = b; p < Math.min(b+batchSize, pages); p++) batch.push(p);
+        const results = await Promise.all(batch.map(p => fetch('/api/vincere/clients?action=ids&start='+(p*pageSize)).then(r=>r.json()).catch(()=>({items:[]}))));
+        results.forEach(r => allIds.push(...(r.items||[])));
+        setLoadProgress({processed:Math.min(b+batchSize, pages),total:pages,phase:'IDs geladen: '+allIds.length+'/'+total});
+      }
+
+      // 3. Fetch details for all companies (also in parallel batches of 30)
+      setLoadProgress({processed:0,total:allIds.length,phase:'Lade Firmen-Details…'});
+      const clients = [];
+      const detailBatch = 30;
+      for(let i = 0; i < allIds.length; i += detailBatch) {
+        const chunk = allIds.slice(i, i+detailBatch);
+        const details = await Promise.all(chunk.map(c => fetch('/api/vincere/clients?action=detail&id='+c.id).then(r=>r.json()).catch(()=>null)));
+        details.forEach(d => { if(d && !d.skip && d.status) clients.push(d); });
+        setLoadProgress({processed:i+chunk.length,total:allIds.length,phase:clients.length+' Kunden mit Status gefunden…'});
+        applyClients([...clients]);
+      }
+
+      // 4. Save to cache
+      if(clients.length > 0) {
+        await fetch('/api/vincere/clients?action=save', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({clients}) });
+      }
+      setLoading(false);
     };
 
-    const init = async () => {
-      try {
-        // Step 1: Check cache
-        const cr = await fetch('/api/vincere/clients');
-        const cd = await cr.json();
-
-        if(cd.fromCache && cd.clients){
-          applyClients(cd.clients, cd.grouped||{});
-          setLoading(false);
-          return;
-        }
-
-        if(cd.needsLoad && cd.totalIds){
-          // IDs already loaded, continue with details
-          runLoad(0, cd.totalIds);
-          return;
-        }
-
-        // Step 2: No cache - init IDs first
-        setLoadProgress({processed:0,total:0,phase:'Lade Firmenliste aus Vincere…'});
-        const ir = await fetch('/api/vincere/clients?action=init');
-        const id = await ir.json();
-        if(!id.ok){setLoading(false);return;}
-
-        // Step 3: Load details batch by batch
-        runLoad(0, id.totalIds);
-
-      } catch(e){setLoading(false);}
-    };
-
-    init();
+    run().catch(()=>setLoading(false));
   },[connected]);
 
   const scanCompany=async(company)=>{
