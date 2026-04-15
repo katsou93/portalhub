@@ -76,7 +76,7 @@ export default async function handler(req, res) {
       let start = 0, total = 9999;
       while (start < total) {
         const r = await fetch(
-          'https://' + tenant + '.vincere.io/api/v2/company/search/fl=id,name;sort=name asc?keyword=&start=' + start + '&rows=500',
+          'https://' + tenant + '.vincere.io/api/v2/company/search/fl=id,name,status,company_type,ownership_type,client_source,type;sort=name asc?keyword=&start=' + start + '&rows=500',
           { headers: vincereHeaders() }
         );
         if (!r.ok) {
@@ -154,11 +154,9 @@ export default async function handler(req, res) {
 
   // ─── DEBUG: test one search page ────────────────────────────────────────
   if (action === 'debug') {
-    // Test with rows=500 to see how many items come back
-    const r = await fetch(
-      'https://' + tenant + '.vincere.io/api/v2/company/search/fl=id,name;sort=name asc?keyword=&start=0&rows=500',
-      { headers: vincereHeaders() }
-    );
+    // Use EXACT same URL as companies.js which confirmed returns 500
+    const url = 'https://' + tenant + '.vincere.io/api/v2/company/search/fl=id,name,status,company_type,ownership_type,client_source,type;sort=name asc?keyword=&start=0&rows=500';
+    const r = await fetch(url, { headers: vincereHeaders() });
     const text = await r.text();
     let parsed = null;
     try { parsed = JSON.parse(text); } catch(e) {}
@@ -167,7 +165,8 @@ export default async function handler(req, res) {
       itemCount: parsed?.result?.items?.length,
       total: parsed?.result?.total,
       raw: text.substring(0, 200),
-      token: token ? token.substring(0,10)+'...' : 'MISSING'
+      token: token ? token.substring(0,10)+'...' : 'MISSING',
+      urlUsed: url.substring(0, 100)
     });
   }
 
