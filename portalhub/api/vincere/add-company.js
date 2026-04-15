@@ -19,8 +19,13 @@ export default async function handler(req, res) {
   const { name } = req.body || {};
   if (!name) return res.status(400).json({ error: 'name required' });
 
-  // Step 1: Create company with just the name (minimal payload)
-  const payload = { company_name: name };
+  // Vincere requires registration_date - use today's date
+  const today = new Date().toISOString().split('T')[0] + 'T00:00:00.000Z';
+
+  const payload = {
+    company_name: name,
+    registration_date: today,
+  };
 
   try {
     const r = await fetch('https://' + tenant + '.vincere.io/api/v2/company', {
@@ -28,10 +33,8 @@ export default async function handler(req, res) {
     });
     const data = await r.json();
     if (!r.ok) {
-      // Return the actual Vincere error so frontend can show it
-      return res.status(200).json({ ok: false, vincereError: data, statusCode: r.status });
+      return res.status(200).json({ ok: false, vincereError: data });
     }
-    // Company created - return the new company ID
     return res.status(200).json({ ok: true, id: data.id, name: data.company_name });
   } catch (e) {
     return res.status(500).json({ ok: false, error: e.message });
