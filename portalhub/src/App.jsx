@@ -44,12 +44,20 @@ async function loadVincereCompanies() {
   } catch(e) { return null; }
 }
 
-async function addToVincere(name, city, postcode) {
+async function enrichCompany(name, city) {
   try {
-    const r = await fetch('/api/vincere/add-company', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({name, city, postcode}) });
+    const r = await fetch('/api/vincere/enrich?name='+encodeURIComponent(name)+'&city='+encodeURIComponent(city||''));
+    if(!r.ok) return null;
+    return await r.json();
+  } catch(e) { return null; }
+}
+
+async function addToVincere(name, enriched) {
+  try {
+    const body = { name, ...(enriched||{}) };
+    const r = await fetch('/api/vincere/add-company', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body) });
     if (!r.ok) return { ok: false, error: 'HTTP ' + r.status };
-    const d = await r.json();
-    return d;
+    return await r.json();
   } catch(e) { return { ok: false, error: e.message }; }
 }
 
