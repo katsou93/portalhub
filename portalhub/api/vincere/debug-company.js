@@ -10,27 +10,28 @@ export default async function handler(req, res) {
   const apiKey = process.env.VINCERE_API_KEY;
   const headers = { 'id-token': token, 'x-api-key': apiKey };
 
-  // Load 5 pages of IDs (50 companies) and get their status_id
-  const allIds = [];
-  for (let start = 0; start < 50; start += 10) {
-    const r = await fetch(
-      'https://' + tenant + '.vincere.io/api/v2/company/search/fl=id,name;sort=name asc?keyword=&start=' + start + '&rows=500',
+  // Search for each specific company by name keyword
+  const searches = ['Rommelag', 'Weppler', 'Comnova', 'Honsel', 'Konfigurator'];
+  const results = {};
+
+  for (const kw of searches) {
+    // Get IDs from first page
+    const sr = await fetch(
+      'https://' + tenant + '.vincere.io/api/v2/company/search/fl=id,name;sort=name asc?keyword=' + encodeURIComponent(kw) + '&start=0&rows=500',
       { headers }
     );
-    const d = await r.json();
-    allIds.push(...(d.result?.items || []).map(c => c.id));
+    const sd = await sr.json();
+    const items = sd.result?.items || [];
+    
+    // For each result, get full detail
+    const details = await Promise.all(items.slice(0,3).map(async item => {
+      const dr = await fetch('https://' + tenant + '.vincere.io/api/v2/company/' + item.id, { headers });
+      const dd = await dr.json();
+      return { id: item.id, name: dd.company_name, status_id: dd.status_id };
+    }));
+    
+    results[kw] = details;
   }
 
-  // Get details for all 50
-  const details = await Promise.all(allIds.map(async id => {
-    const r = await fetch('https://' + tenant + '.vincere.io/api/v2/company/' + id, { headers });
-    const d = await r.json();
-    return { id, name: d.company_name, status_id: d.status_id };
-  }));
-
-  // Build unique status_id map
-  const statusMap = {};
-  details.forEach(d => { if (d.status_id) statusMap[d.status_id] = (statusMap[d.status_id] || 0) + 1; });
-
-  return res.status(200).json({ statusMap, details: details.slice(0, 10) });
+  return res.status(200).json(results);
 }
