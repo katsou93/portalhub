@@ -5,30 +5,33 @@ export default async function handler(req, res) {
   );
   const token = cookies.vincere_token;
   if (!token) return res.status(401).json({ error: 'not_authenticated' });
-
   const tenant = process.env.VINCERE_TENANT;
   const apiKey = process.env.VINCERE_API_KEY;
-  const headers = { 'id-token': token, 'x-api-key': apiKey };
+  const appId = process.env.VINCERE_APP_ID;
+  const headers = { 'Content-Type': 'application/json', 'id-token': token, 'x-api-key': apiKey };
+  if (appId) headers['app-id'] = appId;
 
-  // Direct IDs from user - each has a known CRM status label
-  const companies = [
-    { id: 15537, label: 'HOT - PRIO',       name: 'Rommelag' },
-    { id: 15473, label: 'Upload',            name: 'Weppler Filter' },
-    { id: 18243, label: 'Hot Lead',          name: 'Paul Tech AG' },
-    { id: 18248, label: '4 - Pre Account',   name: 'Honsel Umformtechnik' },
-    { id: 14533, label: '2 - Key Account',   name: 'Dein-Konfigurator' },
-    { id: 14625, label: '3 - Account',       name: 'Remmert GmbH' },
+  // Test: try creating a test company with different payload formats
+  const payloads = [
+    { company_name: 'TEST Debug Company 123' },
+    { name: 'TEST Debug Company 456' },
   ];
 
-  const results = await Promise.all(companies.map(async c => {
-    const r = await fetch('https://' + tenant + '.vincere.io/api/v2/company/' + c.id, { headers });
-    const d = await r.json();
-    return { ...c, status_id: d.status_id, stage_status: d.stage_status, company_name: d.company_name };
-  }));
+  const results = [];
+  for (const payload of payloads) {
+    const r = await fetch('https://' + tenant + '.vincere.io/api/v2/company', {
+      method: 'POST', headers, body: JSON.stringify(payload)
+    });
+    const text = await r.text();
+    let data;
+    try { data = JSON.parse(text); } catch(e) { data = text; }
+    results.push({ payload, status: r.status, response: data });
+    
+    // If created, delete it immediately to keep things clean
+    if (r.ok && data.id) {
+      await fetch('https://' + tenant + '.vincere.io/api/v2/company/' + data.id, { method: 'DELETE', headers });
+    }
+  }
 
-  // Build the mapping table
-  const mapping = {};
-  results.forEach(r => { if (r.status_id) mapping[r.status_id] = r.label; });
-
-  return res.status(200).json({ mapping, details: results });
+  return res.status(200).json({ results });
 }
