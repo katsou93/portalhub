@@ -1,6 +1,6 @@
 import { Redis } from '@upstash/redis';
 
-const CACHE_KEY = 'vincere_clients_v4';
+const CACHE_KEY = 'vincere_clients_v5';
 const CACHE_TTL = 86400;
 
 const STATUS_MAP = { 5:'2 - Key Account', 6:'3 - Account', 8:'4 - Pre Account', 9:'Hot Lead', 10:'Upload', 13:'HOT - PRIO' };
@@ -12,6 +12,8 @@ function parseCookies(req) {
   (req.headers.cookie||'').split(';').forEach(c=>{const t=c.trim();const i=t.indexOf('=');if(i>0)cookies[t.slice(0,i).trim()]=t.slice(i+1);});
   return cookies;
 }
+
+const sleep = ms => new Promise(r => setTimeout(r, ms));
 
 export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin','*');
@@ -29,38 +31,38 @@ export default async function handler(req, res) {
     if(!token) return res.status(401).json({error:'not_authenticated'});
     try{
       const cached = await getRedis().get(CACHE_KEY);
-      if(cached){ const d=typeof cached==='string'?JSON.parse(cached):cached; return res.status(200).json({clients:d.clients,grouped:d.grouped,fromCache:true}); }
+      if(cached){ const d=typeof cached==='string'?JSON.parse(cached):cached; return res.status(200).json({clients:d.clients,grouped:d.grouped,fromCache:true,total:d.clients.length}); }
       return res.status(200).json({needsInit:true});
     }catch(e){ return res.status(200).json({needsInit:true}); }
   }
 
   if(!token) return res.status(401).json({error:'not_authenticated'});
 
-  // GET IDS PAGE - returns 10 IDs at offset start
+  // GET IDS PAGE
   if(action==='ids'){
     const start = parseInt(req.query.start||'0',10);
     const r = await fetch('https://'+tenant+'.vincere.io/api/v2/company/search/fl=id,name;sort=name asc?keyword=&start='+start+'&rows=500',{headers:vh()});
-    if(!r.ok) return res.status(r.status).json({error:'search failed'});
+    if(!r.ok) return res.status(r.status).json({error:'search failed',status:r.status});
     const d = await r.json();
     return res.status(200).json({items:(d.result?.items||[]).map(c=>({id:c.id,name:c.name})),total:d.result?.total||0,start});
   }
 
-  // BATCH DETAIL - receives comma-separated ids, returns only those with matching status_id
+  // BATCH - processes IDs SEQUENTIALLY with delay to avoid rate limiting
   if(action==='batch'){
-    const ids = (req.query.ids||'').split(',').map(Number).filter(Boolean);
+    const ids = (req.query.ids||'').split(',').map(Number).filter(Boolean).slice(0,50);
     if(!ids.length) return res.status(400).json({error:'ids required'});
-    const results = (await Promise.all(
-      ids.map(async id=>{
-        try{
-          const r = await fetch('https://'+tenant+'.vincere.io/api/v2/company/'+id,{headers:vh()});
-          if(!r.ok) return null;
+    const results = [];
+    for(const id of ids){
+      try{
+        const r = await fetch('https://'+tenant+'.vincere.io/api/v2/company/'+id,{headers:vh()});
+        if(r.ok){
           const d = await r.json();
           const label = STATUS_MAP[d.status_id];
-          if(!label) return null;
-          return {id,name:d.company_name,status:label,status_id:d.status_id,website:d.website||null,careersite_url:d.careersite_url||null};
-        }catch(e){return null;}
-      })
-    )).filter(Boolean);
+          if(label) results.push({id,name:d.company_name,status:label,status_id:d.status_id,website:d.website||null,careersite_url:d.careersite_url||null});
+        }
+      }catch(e){}
+      await sleep(40); // 40ms between each call = max 25 calls/sec, well within limits
+    }
     return res.status(200).json({clients:results});
   }
 
