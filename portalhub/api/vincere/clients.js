@@ -152,6 +152,16 @@ export default async function handler(req, res) {
     }
   }
 
+  // ─── DEBUG: test one search page ────────────────────────────────────────
+  if (action === 'debug') {
+    const r = await fetch(
+      'https://' + tenant + '.vincere.io/api/v2/company/search/fl=id,name,status;sort=name asc?keyword=&start=0&rows=5',
+      { headers: vincereHeaders() }
+    );
+    const text = await r.text();
+    return res.status(200).json({ httpStatus: r.status, raw: text.substring(0, 500), token: token ? token.substring(0,10)+'...' : 'MISSING' });
+  }
+
   // ─── CLEAR ────────────────────────────────────────────────────────────────
   if (action === 'clear') {
     try {
