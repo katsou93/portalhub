@@ -1,6 +1,6 @@
 import { Redis } from '@upstash/redis';
 
-const CACHE_KEY = 'vincere_clients_v6';
+const CACHE_KEY = 'vincere_clients_v7';
 const CACHE_TTL = 86400;
 const STATUS_MAP = { 5:'2 - Key Account', 6:'3 - Account', 8:'4 - Pre Account', 9:'Hot Lead', 10:'Upload', 13:'HOT - PRIO' };
 
@@ -35,39 +35,57 @@ export default async function handler(req, res) {
 
   if(!token) return res.status(401).json({error:'not_authenticated'});
 
-  // GET IDS PAGE - returns up to 10 IDs from Vincere
-  if(action==='ids'){
-    const start = parseInt(req.query.start||'0',10);
-    const r = await fetch('https://'+tenant+'.vincere.io/api/v2/company/search/fl=id,name;sort=name asc?keyword=&start='+start+'&rows=500',{headers:vh()});
-    if(!r.ok) return res.status(r.status).json({error:'search failed'});
-    const d = await r.json();
-    return res.status(200).json({items:(d.result?.items||[]).map(c=>({id:c.id,name:c.name})),total:d.result?.total||0,start});
-  }
+  // SCAN: loads 10 ID-pages sequentially + fetches their details
+  // offset=0 → companies 0-99, offset=100 → 100-199, etc.
+  // All sequential → zero rate limiting, always completes within 10s
+  if(action==='scan'){
+    const offset = parseInt(req.query.offset||'0', 10);
+    const pageSize = 10; // Vincere returns 10 per page
+    const pagesPerScan = 10; // 10 pages × 10 companies = 100 companies per scan
+    const found = [];
 
-  // BATCH - 20 IDs max, parallel calls, completes well within 10s timeout
-  if(action==='batch'){
-    const ids = (req.query.ids||'').split(',').map(Number).filter(Boolean).slice(0,20);
-    if(!ids.length) return res.status(400).json({error:'ids required'});
-    const results = (await Promise.all(
-      ids.map(async id=>{
-        try{
-          const r = await fetch('https://'+tenant+'.vincere.io/api/v2/company/'+id,{headers:vh(),signal:AbortSignal.timeout(8000)});
-          if(!r.ok) return null;
-          const d = await r.json();
-          const label = STATUS_MAP[d.status_id];
-          if(!label) return null;
-          return {id,name:d.company_name,status:label,status_id:d.status_id,website:d.website||null,careersite_url:d.careersite_url||null};
-        }catch(e){return null;}
-      })
-    )).filter(Boolean);
-    return res.status(200).json({clients:results});
+    for(let p = 0; p < pagesPerScan; p++){
+      const start = offset + p * pageSize;
+      try{
+        // Load IDs for this page
+        const sr = await fetch(
+          'https://'+tenant+'.vincere.io/api/v2/company/search/fl=id,name;sort=name asc?keyword=&start='+start+'&rows=500',
+          {headers:vh(), signal:AbortSignal.timeout(5000)}
+        );
+        if(!sr.ok) continue;
+        const sd = await sr.json();
+        const items = sd.result?.items || [];
+        const total = sd.result?.total || 0;
+
+        // Fetch detail for each ID on this page
+        for(const item of items){
+          try{
+            const dr = await fetch(
+              'https://'+tenant+'.vincere.io/api/v2/company/'+item.id,
+              {headers:vh(), signal:AbortSignal.timeout(5000)}
+            );
+            if(!dr.ok) continue;
+            const dd = await dr.json();
+            const label = STATUS_MAP[dd.status_id];
+            if(label) found.push({id:item.id,name:dd.company_name||item.name,status:label,status_id:dd.status_id,website:dd.website||null,careersite_url:dd.careersite_url||null});
+          }catch(e){}
+        }
+
+        // If this was the last page of results, signal done
+        if(items.length === 0 || start + pageSize >= total){
+          return res.status(200).json({clients:found, nextOffset: offset + (p+1)*pageSize, done:true, total});
+        }
+      }catch(e){}
+    }
+
+    return res.status(200).json({clients:found, nextOffset: offset + pagesPerScan * pageSize, done:false});
   }
 
   // SAVE TO CACHE
   if(action==='save'&&req.method==='POST'){
     const clients = req.body?.clients||[];
     const grouped = {};
-    for(const c of clients){const k=c.status||'Kein Status';if(!grouped[k])grouped[k]=[];grouped[k].push(c);}
+    for(const c of clients){const k=c.status;if(!grouped[k])grouped[k]=[];grouped[k].push(c);}
     await getRedis().set(CACHE_KEY,JSON.stringify({clients,grouped,at:Date.now()}),{ex:CACHE_TTL});
     return res.status(200).json({ok:true,total:clients.length,statuses:Object.keys(grouped)});
   }
