@@ -79,10 +79,19 @@ export default async function handler(req, res) {
           'https://' + tenant + '.vincere.io/api/v2/company/search/fl=id,name,status;sort=name asc?keyword=&start=' + start + '&rows=500',
           { headers: vincereHeaders() }
         );
-        if (!r.ok) break;
+        if (!r.ok) {
+          const errText = await r.text().catch(() => '');
+          console.error('[init] search error', r.status, errText.substring(0, 100));
+          // 401 = token expired, stop and return what we have
+          if (r.status === 401) break;
+          // Other errors: try to continue
+          start += 500;
+          continue;
+        }
         const d = await r.json();
         const items = d.result?.items || [];
         total = d.result?.total || 0;
+        console.log('[init] loaded', start, '/', total, '- got', items.length, 'items');
         items.forEach(c => allIds.push({ id: c.id, name: c.name }));
         if (items.length < 500) break;
         start += 500;
