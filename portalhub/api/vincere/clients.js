@@ -154,12 +154,21 @@ export default async function handler(req, res) {
 
   // ─── DEBUG: test one search page ────────────────────────────────────────
   if (action === 'debug') {
+    // Test with rows=500 to see how many items come back
     const r = await fetch(
-      'https://' + tenant + '.vincere.io/api/v2/company/search/fl=id,name,status;sort=name asc?keyword=&start=0&rows=5',
+      'https://' + tenant + '.vincere.io/api/v2/company/search/fl=id,name,status;sort=name asc?keyword=&start=0&rows=500',
       { headers: vincereHeaders() }
     );
     const text = await r.text();
-    return res.status(200).json({ httpStatus: r.status, raw: text.substring(0, 500), token: token ? token.substring(0,10)+'...' : 'MISSING' });
+    let parsed = null;
+    try { parsed = JSON.parse(text); } catch(e) {}
+    return res.status(200).json({
+      httpStatus: r.status,
+      itemCount: parsed?.result?.items?.length,
+      total: parsed?.result?.total,
+      raw: text.substring(0, 200),
+      token: token ? token.substring(0,10)+'...' : 'MISSING'
+    });
   }
 
   // ─── CLEAR ────────────────────────────────────────────────────────────────
