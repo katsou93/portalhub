@@ -5,91 +5,93 @@ export default async function handler(req, res) {
   const { name, city } = req.query;
   if(!name) return res.status(400).json({error:'name required'});
 
-  const result = { website: null, street: null, postcode: null, city: city||null };
+  const result = { website:null, street:null, postcode:null, city:city||null };
 
   try {
-    // Step 1: Search DuckDuckGo for the company's Impressum
-    const query = encodeURIComponent(name + (city?' '+city:'') + ' Impressum');
-    const searchUrl = 'https://html.duckduckgo.com/html/?q=' + query;
-    const searchRes = await fetch(searchUrl, {
-      headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120.0.0.0 Safari/537.36' },
-      signal: AbortSignal.timeout(6000),
+    // Use DuckDuckGo Instant Answer API - lightweight, no blocking
+    const query = encodeURIComponent(name + (city?' '+city:''));
+    const ddgUrl = 'https://api.duckduckgo.com/?q='+query+'&format=json&no_redirect=1&no_html=1&skip_disambig=1';
+
+    const ddgRes = await fetch(ddgUrl, {
+      headers:{'User-Agent':'Mozilla/5.0 (compatible; PortalHub/1.0)'},
+      signal:AbortSignal.timeout(4000)
     });
-    const searchHtml = await searchRes.text();
+    const ddgData = await ddgRes.json();
 
-    // Extract first organic result URL
-    const linkMatch = searchHtml.match(/href="(https?://(?!duckduckgo.com)[^"]+)"/);
-    if(!linkMatch) return res.status(200).json(result);
+    // Get website from DuckDuckGo result
+    let siteUrl = ddgData.AbstractURL || ddgData.OfficialWebsite || null;
 
-    let siteUrl = linkMatch[1];
-    // Get root domain for website field
+    // If no result from DDG instant answer, try to guess URL from company name
+    if(!siteUrl) {
+      // Normalize company name to domain guess
+      const domainGuess = name
+        .toLowerCase()
+        .replace(/gmbh.*|ag$|se$|kg$|e\.v\.$|ohg$|ug$/gi,'')
+        .replace(/[^a-z0-9äöüß]+/g,'-')
+        .replace(/^-+|-+$/g,'')
+        .replace(/ä/g,'ae').replace(/ö/g,'oe').replace(/ü/g,'ue').replace(/ß/g,'ss')
+        .substring(0,30).replace(/-+$/,'');
+      siteUrl = 'https://www.' + domainGuess + '.de';
+    }
+
+    // Get clean domain
     try {
       const u = new URL(siteUrl);
       result.website = u.origin;
-    } catch(e) {}
+    } catch(e) { result.website = siteUrl; }
 
-    // Step 2: Try to find Impressum page
-    // First fetch the homepage to find an Impressum link
-    const homeRes = await fetch(result.website, {
-      headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36' },
-      signal: AbortSignal.timeout(6000),
-      redirect: 'follow',
-    });
-    const homeHtml = homeRes.ok ? await homeRes.text() : '';
+    // Fetch Impressum page directly (try common paths)
+    const impressumPaths = ['/impressum', '/impressum.html', '/imprint', '/kontakt', '/ueber-uns/impressum'];
+    let impHtml = '';
 
-    // Find Impressum link on homepage
-    let impressumUrl = null;
-    const impMatch = homeHtml.match(/href="([^"]*(?:impressum|imprint|legal|rechtliches)[^"]*)"/i);
-    if(impMatch) {
-      let link = impMatch[1];
-      if(link.startsWith('/')) link = result.website + link;
-      else if(!link.startsWith('http')) link = result.website + '/' + link;
-      impressumUrl = link;
+    for(const path of impressumPaths) {
+      try {
+        const r = await fetch(result.website + path, {
+          headers:{'User-Agent':'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'},
+          signal:AbortSignal.timeout(3000),
+          redirect:'follow'
+        });
+        if(r.ok) {
+          impHtml = await r.text();
+          if(impHtml.length > 500) break; // Got real content
+        }
+      } catch(e) {}
     }
 
-    // Step 3: Fetch Impressum page (or use homepage if no impressum link found)
-    const pageToScrape = impressumUrl || siteUrl;
-    const impRes = await fetch(pageToScrape, {
-      headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36' },
-      signal: AbortSignal.timeout(6000),
-      redirect: 'follow',
-    });
-    if(!impRes.ok) return res.status(200).json(result);
-    const impHtml = await impRes.text();
+    // If no impressum found via path, try homepage
+    if(!impHtml) {
+      try {
+        const r = await fetch(result.website, {
+          headers:{'User-Agent':'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'},
+          signal:AbortSignal.timeout(3000), redirect:'follow'
+        });
+        if(r.ok) impHtml = await r.text();
+      } catch(e) {}
+    }
 
-    // Step 4: Extract German address from Impressum
-    // German addresses: "Musterstraße 12, 12345 Musterstadt" or similar
-    // Pattern: Street + number, then newline/comma, then PLZ + City
-    const addressPatterns = [
-      // Street number PLZ City (various separators)
-      /([A-ZÄÖÜ][a-zA-ZäöüÄÖÜßs-.]+(?:str(?:aße|.)|gasse|weg|allee|ring|platz|damm|ufer|chaussee)s+d+[a-zA-Z]?)[,s
+    if(impHtml) {
+      // Extract German address: Streetname Nr, PLZ City
+      // Most German Impressum pages have address in plain text
+      const stripped = impHtml.replace(/<[^>]+>/g,' ').replace(/&nbsp;/g,' ').replace(/\s+/g,' ');
 
-]+(d{4,5})s+([A-ZÄÖÜ][a-zA-ZäöüÄÖÜßs-]+)/gi,
-      // PLZ City on its own line (after address)
-      /(d{5})s+([A-ZÄÖÜ][a-zA-ZäöüÄÖÜßs-]{2,30})(?=[s
-
-<,])/g,
-    ];
-
-    // Try full address pattern first
-    const fullMatch = addressPatterns[0].exec(impHtml);
-    if(fullMatch) {
-      result.street = fullMatch[1].trim();
-      result.postcode = fullMatch[2].trim();
-      result.city = fullMatch[3].trim().replace(/s+/g,' ').split(/[
-<,]/)[0].trim();
-    } else {
-      // Try just PLZ + City
-      const plzMatch = addressPatterns[1].exec(impHtml);
-      if(plzMatch) {
-        result.postcode = plzMatch[1].trim();
-        result.city = plzMatch[2].trim().replace(/s+/g,' ').split(/[
-<,]/)[0].trim();
+      // Pattern: Street + number + PLZ (5 digits) + City
+      const fullAddr = stripped.match(/([A-ZÄÖÜ][a-zA-ZäöüÄÖÜß\-\.]+(?:str(?:aße|\.?)|gasse|weg|allee|ring|platz|damm|ufer|chaussee|straße)\s{0,3}\d{1,4}[a-zA-Z]?)[,\s]+?(\d{4,5})[\s]+([A-ZÄÖÜ][a-zA-ZäöüÄÖÜß\s\-]{2,25})/);
+      if(fullAddr) {
+        result.street  = fullAddr[1].trim();
+        result.postcode = fullAddr[2].trim();
+        result.city    = fullAddr[3].trim().split(/[,\n<]/)[0].trim();
+      } else {
+        // Just PLZ + City
+        const plzCity = stripped.match(/(\d{5})\s+([A-ZÄÖÜ][a-zA-ZäöüÄÖÜß\s\-]{2,25})(?=[\s,<])/);
+        if(plzCity) {
+          result.postcode = plzCity[1].trim();
+          result.city    = plzCity[2].trim().split(/[,\n<]/)[0].trim();
+        }
       }
     }
 
     return res.status(200).json(result);
   } catch(e) {
-    return res.status(200).json({ ...result, error: e.message });
+    return res.status(200).json({...result, error:e.message});
   }
 }
