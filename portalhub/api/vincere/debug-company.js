@@ -11,27 +11,34 @@ export default async function handler(req, res) {
   const headers = { 'Content-Type': 'application/json', 'id-token': token, 'x-api-key': apiKey };
   if (appId) headers['app-id'] = appId;
 
-  // Test: try creating a test company with different payload formats
-  const payloads = [
-    { company_name: 'TEST Debug Company 123' },
-    { name: 'TEST Debug Company 456' },
-  ];
+  const today = new Date().toISOString().split('T')[0] + 'T00:00:00.000Z';
 
-  const results = [];
-  for (const payload of payloads) {
-    const r = await fetch('https://' + tenant + '.vincere.io/api/v2/company', {
-      method: 'POST', headers, body: JSON.stringify(payload)
-    });
-    const text = await r.text();
-    let data;
-    try { data = JSON.parse(text); } catch(e) { data = text; }
-    results.push({ payload, status: r.status, response: data });
-    
-    // If created, delete it immediately to keep things clean
-    if (r.ok && data.id) {
-      await fetch('https://' + tenant + '.vincere.io/api/v2/company/' + data.id, { method: 'DELETE', headers });
+  // Test creating with location - try different address formats
+  const payload = {
+    company_name: 'TEST Location Company',
+    registration_date: today,
+    head_quarter: {
+      location_name: '93342 Saal an der Donau',
+      city: 'Kirchroth',
+      postcode: '93342',
+      country: 'DE',
+      address: 'Kirchroth',
     }
+  };
+
+  const r = await fetch('https://' + tenant + '.vincere.io/api/v2/company', {
+    method: 'POST', headers, body: JSON.stringify(payload)
+  });
+  const data = await r.json();
+
+  // If created, get the full detail to see what location fields look like
+  let detail = null;
+  if (r.ok && data.id) {
+    const dr = await fetch('https://' + tenant + '.vincere.io/api/v2/company/' + data.id, { headers });
+    detail = await dr.json();
+    // Clean up
+    await fetch('https://' + tenant + '.vincere.io/api/v2/company/' + data.id, { method: 'DELETE', headers });
   }
 
-  return res.status(200).json({ results });
+  return res.status(200).json({ status: r.status, created: data, detail });
 }
