@@ -46,9 +46,11 @@ async function loadVincereCompanies() {
 
 async function addToVincere(name, city, postcode, country) {
   try {
-    const r = await fetch('/api/vincere/add-company', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({name, city, postcode, country}) });
-    return r.ok;
-  } catch(e) { return false; }
+    const r = await fetch('/api/vincere/add-company', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({name}) });
+    if (!r.ok) return { ok: false, error: 'HTTP ' + r.status };
+    const d = await r.json();
+    return d;
+  } catch(e) { return { ok: false, error: e.message }; }
 }
 
 function fmt(d) {
@@ -526,10 +528,15 @@ export default function App() {
 
   const handleAdd=async(name, city, postcode, country)=>{
     setAddingId(name);
-    const ok=await addToVincere(name, city, postcode, country);
-    if(ok){setVNames(p=>[...p,name]);setActs(a=>[{id:Date.now(),text:name+' → Vincere hinzugefügt',time:new Date().toLocaleTimeString('de-DE',{hour:'2-digit',minute:'2-digit'}),col:C.violet},...a]);}
-    else{setActs(a=>[{id:Date.now(),text:'⚠ '+name+' konnte nicht hinzugefügt werden',time:new Date().toLocaleTimeString('de-DE',{hour:'2-digit',minute:'2-digit'}),col:C.amber},...a]);}
-    setAddingId(null);return ok;
+    const result=await addToVincere(name, city, postcode, country);
+    if(result && result.ok){
+      setVNames(p=>[...p,name]);
+      setActs(a=>[{id:Date.now(),text:'✓ '+name+' → Vincere',time:new Date().toLocaleTimeString('de-DE',{hour:'2-digit',minute:'2-digit'}),col:C.violet},...a]);
+    } else {
+      const errMsg = result?.vincereError ? JSON.stringify(result.vincereError).substring(0,80) : (result?.error||'Fehler');
+      setActs(a=>[{id:Date.now(),text:'⚠ '+name+': '+errMsg,time:new Date().toLocaleTimeString('de-DE',{hour:'2-digit',minute:'2-digit'}),col:C.red},...a]);
+    }
+    setAddingId(null);return result?.ok||false;
   };
 
   const nav=[
