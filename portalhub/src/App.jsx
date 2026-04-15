@@ -260,66 +260,48 @@ function MonitoringView({connected}) {
 
     const applyClients = (clients) => {
       const grouped = {};
-      for(const c of clients){const k=c.status||'Kein Status';if(!grouped[k])grouped[k]=[];grouped[k].push(c);}
+      for(const co of clients){const k=co.status;if(!grouped[k])grouped[k]=[];grouped[k].push(co);}
       setClients(clients);setGrouped(grouped);
       setOpenGroups(prev=>{const o={...prev};Object.keys(grouped).forEach(k=>{if(!(k in o))o[k]=true;});return o;});
     };
 
     const run = async () => {
-      // 1. Check cache first
+      // 1. Check cache
       const cr = await fetch('/api/vincere/clients');
       const cd = await cr.json();
       if(cd.fromCache && cd.clients){ applyClients(cd.clients); setLoading(false); return; }
 
-      // 2. Load first page to get total
-      setLoadProgress({processed:0,total:0,phase:'Lade Firmenliste aus Vincere…'});
-      const firstR = await fetch('/api/vincere/clients?action=ids&start=0');
-      const firstD = await firstR.json();
-      const total = firstD.total || 0;
-      const pages = Math.ceil(total / 10);
-      const allIds = [...(firstD.items||[])];
+      // 2. Scan: each call processes 100 companies fully on the server
+      // Sequential IDs + details, no rate limiting, always within timeout
+      const allClients = [];
+      let offset = 0;
+      let done = false;
+      let total = 0;
 
-      // 3. Load ALL remaining ID pages - 30 concurrent requests at a time
-      for(let b=1; b<pages; b+=30){
-        const offsets=[];
-        for(let p=b;p<Math.min(b+30,pages);p++) offsets.push(p*10);
-        const results = await Promise.all(offsets.map(s=>
-          fetch('/api/vincere/clients?action=ids&start='+s).then(r=>r.json()).catch(()=>({items:[]}))
-        ));
-        results.forEach(r=>allIds.push(...(r.items||[])));
-        setLoadProgress({processed:Math.min(b+30,pages),total:pages,phase:'IDs: '+allIds.length+'/'+total});
-      }
+      setLoadProgress({processed:0,total:0,phase:'Scanne Vincere CRM…'});
 
-      // 4. Batch detail calls - 20 IDs per request, sequential frontend calls
-      // 20 parallel Vincere calls on server = ~300ms total, well within 10s timeout
-      setLoadProgress({processed:0,total:allIds.length,phase:'Analysiere Firmen-Status…'});
-      const clients = [];
-      const chunkSize = 20;
-      const chunks = [];
-      for(let i=0;i<allIds.length;i+=chunkSize) chunks.push(allIds.slice(i,i+chunkSize));
-
-      for(let b=0;b<chunks.length;b++){
-        const ids = chunks[b].map(co=>co.id).join(',');
+      while(!done){
         try{
-          const r = await fetch('/api/vincere/clients?action=batch&ids='+ids);
-          if(r.ok){
-            const d = await r.json();
-            (d.clients||[]).forEach(co=>clients.push(co));
-          }
-        }catch(e){}
-        const processed = Math.min((b+1)*chunkSize, allIds.length);
-        setLoadProgress({processed,total:allIds.length,phase:clients.length+' Kunden gefunden…'});
-        if(clients.length>0) applyClients([...clients]);
+          const r = await fetch('/api/vincere/clients?action=scan&offset='+offset);
+          if(!r.ok) break;
+          const d = await r.json();
+          (d.clients||[]).forEach(co=>allClients.push(co));
+          done = d.done || false;
+          offset = d.nextOffset || (offset+100);
+          if(d.total) total = d.total;
+          setLoadProgress({processed:offset,total:total||offset+1,phase:allClients.length+' Kunden gefunden…'});
+          if(allClients.length>0) applyClients([...allClients]);
+        }catch(e){ break; }
       }
 
-      // 5. Save final result to Redis cache (24h)
-      if(clients.length>0){
-        await fetch('/api/vincere/clients?action=save',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({clients})});
+      // 3. Save to Redis cache
+      if(allClients.length>0){
+        await fetch('/api/vincere/clients?action=save',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({clients:allClients})});
       }
       setLoading(false);
     };
 
-    run().catch(e=>{ console.error(e); setLoading(false); });
+    run().catch(()=>setLoading(false));
   },[connected]);
 
   const scanCompany=async(company)=>{
