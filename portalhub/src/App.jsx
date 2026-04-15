@@ -290,23 +290,22 @@ function MonitoringView({connected}) {
         setLoadProgress({processed:Math.min(b+30,pages),total:pages,phase:'IDs: '+allIds.length+'/'+total});
       }
 
-      // 4. Batch detail calls - send 25 IDs per request, 6 requests in parallel
-      // Only companies with status_id 5,6,8,9,10,13 are returned by the server
+      // 4. Batch detail calls - 50 IDs per request, SEQUENTIAL (no parallel)
+      // Server processes each ID one-by-one with 40ms delay = no rate limiting
       setLoadProgress({processed:0,total:allIds.length,phase:'Analysiere Firmen-Status…'});
       const clients = [];
-      const chunkSize = 25;
-      const concurrent = 6;
+      const chunkSize = 50;
       const chunks = [];
       for(let i=0;i<allIds.length;i+=chunkSize) chunks.push(allIds.slice(i,i+chunkSize));
 
-      for(let b=0;b<chunks.length;b+=concurrent){
-        const batch = chunks.slice(b,b+concurrent);
-        const results = await Promise.all(batch.map(chunk=>{
-          const ids = chunk.map(c=>c.id).join(',');
-          return fetch('/api/vincere/clients?action=batch&ids='+ids).then(r=>r.json()).catch(()=>({clients:[]}));
-        }));
-        results.forEach(r=>(r.clients||[]).forEach(c=>clients.push(c)));
-        const processed = Math.min((b+concurrent)*chunkSize, allIds.length);
+      for(let b=0;b<chunks.length;b++){
+        const ids = chunks[b].map(c=>c.id).join(',');
+        try{
+          const r = await fetch('/api/vincere/clients?action=batch&ids='+ids);
+          const d = await r.json();
+          (d.clients||[]).forEach(c=>clients.push(c));
+        }catch(e){}
+        const processed = Math.min((b+1)*chunkSize, allIds.length);
         setLoadProgress({processed,total:allIds.length,phase:clients.length+' Kunden gefunden…'});
         if(clients.length>0) applyClients([...clients]);
       }
