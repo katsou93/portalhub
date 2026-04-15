@@ -44,9 +44,9 @@ async function loadVincereCompanies() {
   } catch(e) { return null; }
 }
 
-async function addToVincere(name, city, postcode, country) {
+async function addToVincere(name, city, postcode) {
   try {
-    const r = await fetch('/api/vincere/add-company', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({name}) });
+    const r = await fetch('/api/vincere/add-company', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({name, city, postcode}) });
     if (!r.ok) return { ok: false, error: 'HTTP ' + r.status };
     const d = await r.json();
     return d;
@@ -115,7 +115,7 @@ function JobCard({job,names,onAdd,addingId}) {
       <div style={{display:'flex',alignItems:'center',gap:7,flexShrink:0}}>
         <span style={{fontSize:11,color:C.faint}}>{job.posted}</span>
         <span style={{fontSize:10.5,background:C.bg3,border:'1px solid '+C.border,color:C.faint,padding:'2px 7px',borderRadius:5}}>{job.type}</span>
-        <VBadge company={job.company} names={names} onAdd={()=>onAdd(job.company, job.city, job.postcode, job.country)} adding={addingId===job.company} />
+        <VBadge company={job.company} names={names} onAdd={()=>onAdd(job.company, job.city, job.postcode)} adding={addingId===job.company} />
       </div>
     </div>
   );
@@ -158,7 +158,7 @@ function SearchView({names,onAdd,addingId,setSH,connected}) {
     const newJobs=jobs.filter(j=>j.company&&j.company!=='—'&&!names.some(n=>nameMatch(n,j.company)));
     const seen=new Set(); const unique=newJobs.filter(j=>{if(seen.has(j.company))return false;seen.add(j.company);return true;});
     if(!unique.length)return; setBulkAdding(true); setBulkDone(0);
-    for(const j of unique){await onAdd(j.company,j.city,j.postcode,j.country);setBulkDone(d=>d+1);}
+    for(const j of unique){await onAdd(j.company,j.city,j.postcode);setBulkDone(d=>d+1);}
     setBulkAdding(false);
   };
 
@@ -526,7 +526,7 @@ export default function App() {
     });
   },[]);
 
-  const handleAdd=async(name, city, postcode, country)=>{
+  const handleAdd=async(name, city, postcode)=>{
     setAddingId(name);
     const result=await addToVincere(name, city, postcode, country);
     if(result && result.ok){
