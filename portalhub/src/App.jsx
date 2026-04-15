@@ -310,7 +310,8 @@ function MonitoringView({connected}) {
     setScanning(p=>({...p,[company.id]:true}));
     try{
       const r=await fetch('/api/vincere/scrape?url='+encodeURIComponent(url));
-      const data=await r.json();
+      let data;
+      try{ data=await r.json(); }catch(e){ data={jobs:[],error:'Keine gültige Antwort vom Server'}; }
       setScanResults(p=>({...p,[company.id]:data}));
     }catch(e){setScanResults(p=>({...p,[company.id]:{error:e.message,jobs:[]}}));}
     setScanning(p=>({...p,[company.id]:false}));
