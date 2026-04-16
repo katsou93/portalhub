@@ -44,48 +44,15 @@ async function loadVincereCompanies() {
   } catch(e) { return null; }
 }
 
-async function enrichCompany(name, city) {
+async function addToVincere(name, city, postcode) {
   try {
-    // Step 1: Google search → get website URL (fast, ~2s)
-    const r1 = await fetch('/api/vincere/enrich?name='+encodeURIComponent(name)+'&city='+encodeURIComponent(city||''));
-    if(!r1.ok) return null;
-    const d1 = await r1.json();
-    if(!d1.url) return null;
-
-    // Step 2: Scrape the Impressum page for address (via existing scrape.js)
-    // Try the impressum URL directly, or the homepage
-    const impressumUrl = d1.url.toLowerCase().includes('impressum') 
-      ? d1.url 
-      : d1.website + '/impressum';
-
-    const r2 = await fetch('/api/vincere/scrape?url='+encodeURIComponent(impressumUrl));
-    let address = { street:null, postcode:null, city:city||null, website: d1.website };
-
-    if(r2.ok) {
-      const scrapeData = await r2.json().catch(()=>null);
-      // scrape.js returns HTML text via error sometimes - use the raw endpoint
-    }
-
-    // Step 2b: Fetch the impressum page directly and parse address in browser
-    try {
-      const r3 = await fetch('/api/vincere/enrich?name='+encodeURIComponent(name)+'&city='+encodeURIComponent(city||'')+'&url='+encodeURIComponent(impressumUrl));
-      if(r3.ok) {
-        const d3 = await r3.json();
-        if(d3.street || d3.postcode) Object.assign(address, d3);
-      }
-    } catch(e) {}
-
-    return address;
-  } catch(e) { return null; }
-}
-
-async function addToVincere(name, enriched) {
-  try {
-    const body = { name, ...(enriched||{}) };
-    const r = await fetch('/api/vincere/add-company', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body) });
-    if (!r.ok) return { ok: false, error: 'HTTP ' + r.status };
+    const r = await fetch('/api/vincere/add-company', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({name, city, postcode})
+    });
+    if(!r.ok) return {ok:false, error:'HTTP '+r.status};
     return await r.json();
-  } catch(e) { return { ok: false, error: e.message }; }
+  } catch(e) { return {ok:false, error:e.message}; }
 }
 
 function fmt(d) {
