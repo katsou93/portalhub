@@ -7,94 +7,96 @@ export default async function handler(req, res) {
 
   const result = { website:null, street:null, postcode:null, city:city||null };
 
-  // Generate domain candidates from company name
-  const clean = name
-    .replace(/gmbh\s*&\s*co\.?\s*kg/gi,'').replace(/gmbh\s*&\s*co/gi,'')
-    .replace(/\b(gmbh|ag|kg|se|ug|ohg|gbr|e\.v\.|ev|ltd|inc|group|holding|solutions|services|technology|technologies|systems|consulting|software|media|digital|global|international)\b/gi,'')
-    .replace(/[^a-zA-Z0-9äöüÄÖÜß\s]/g,' ').replace(/\s+/g,' ').trim();
+  try {
+    // Google search for the company's Impressum
+    const query = encodeURIComponent('"' + name + '" ' + (city||'') + ' Impressum');
+    const googleUrl = 'https://www.google.com/search?q=' + query + '&hl=de&gl=de&num=5';
 
-  const toSlug = s => s.toLowerCase()
-    .replace(/ä/g,'ae').replace(/ö/g,'oe').replace(/ü/g,'ue').replace(/ß/g,'ss')
-    .replace(/[^a-z0-9]+/g,'-').replace(/^-+|-+$/g,'');
+    const googleRes = await fetch(googleUrl, {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+        'Accept-Language': 'de-DE,de;q=0.9',
+        'Accept-Encoding': 'gzip, deflate',
+      },
+      signal: AbortSignal.timeout(7000),
+      redirect: 'follow',
+    });
 
-  const words = clean.split(' ').filter(w=>w.length>2);
-  const candidates = [];
+    if(!googleRes.ok) return res.status(200).json({...result, error:'Google returned '+googleRes.status});
 
-  // Full name as domain
-  candidates.push('https://www.'+toSlug(clean)+'.de');
-  // First two words
-  if(words.length>=2) candidates.push('https://www.'+toSlug(words.slice(0,2).join(' '))+'.de');
-  // First word only
-  if(words[0]) candidates.push('https://www.'+toSlug(words[0])+'.de');
-  // With city
-  if(city && words[0]) candidates.push('https://www.'+toSlug(words[0]+' '+city)+'.de');
+    const html = await googleRes.text();
 
-  // Also try .com variants
-  candidates.push('https://www.'+toSlug(clean)+'.com');
+    // Extract first organic result URL from Google
+    // Google wraps links in: <a href="/url?q=https://...&amp;
+    const urlMatches = [...html.matchAll(/href="/url?q=(https?://(?!(?:google|youtube|facebook|wikipedia|xing|linkedin|kununu)[^"]*)[^"&]+)/g)];
 
-  const ua = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120.0.0.0 Safari/537.36';
+    if(!urlMatches.length) return res.status(200).json({...result, error:'No results from Google'});
 
-  // Find working domain
-  let workingBase = null;
-  for(const url of candidates) {
-    try {
-      const r = await fetch(url, {headers:{' User-Agent':ua}, signal:AbortSignal.timeout(2500), redirect:'follow'});
-      if(r.ok || r.status===301||r.status===302) {
-        workingBase = new URL(r.url).origin;
-        result.website = workingBase;
-        break;
-      }
-    } catch(e) {}
-  }
+    // Get first non-Google URL
+    const siteUrl = decodeURIComponent(urlMatches[0][1]);
+    try { result.website = new URL(siteUrl).origin; } catch(e) { result.website = siteUrl; }
 
-  if(!workingBase) return res.status(200).json(result);
+    // Now fetch the Impressum page (try the exact URL first, then common paths)
+    const urlsToTry = [siteUrl];
+    if(!siteUrl.toLowerCase().includes('impressum')) {
+      urlsToTry.push(result.website + '/impressum');
+      urlsToTry.push(result.website + '/impressum.html');
+      urlsToTry.push(result.website + '/de/impressum');
+    }
 
-  // Try common Impressum paths
-  const paths = ['/impressum','/impressum/','/imprint','/impressum.html','/de/impressum','/ueber-uns/impressum','/kontakt','/datenschutz'];
-  let impHtml = '';
-  for(const path of paths) {
-    try {
-      const r = await fetch(workingBase+path, {headers:{'User-Agent':ua}, signal:AbortSignal.timeout(3000), redirect:'follow'});
-      if(r.ok) { impHtml = await r.text(); if(impHtml.length>1000) break; }
-    } catch(e) {}
-  }
-
-  if(!impHtml) {
-    // Fallback: try homepage and look for impressum link
-    try {
-      const r = await fetch(workingBase, {headers:{'User-Agent':ua}, signal:AbortSignal.timeout(3000), redirect:'follow'});
-      if(r.ok) {
-        const html = await r.text();
-        const m = html.match(/href="([^"]*impressum[^"]*)"/i);
-        if(m) {
-          let link = m[1];
-          if(link.startsWith('/')) link = workingBase+link;
-          const ir = await fetch(link, {headers:{'User-Agent':ua}, signal:AbortSignal.timeout(3000)});
-          if(ir.ok) impHtml = await ir.text();
+    let impHtml = '';
+    for(const url of urlsToTry) {
+      try {
+        const r = await fetch(url, {
+          headers: {'User-Agent':'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120.0.0.0 Safari/537.36'},
+          signal: AbortSignal.timeout(4000),
+          redirect: 'follow',
+        });
+        if(r.ok) {
+          impHtml = await r.text();
+          if(impHtml.length > 200) break;
         }
-      }
-    } catch(e) {}
-  }
+      } catch(e) {}
+    }
 
-  if(impHtml) {
-    const text = impHtml.replace(/<[^>]+>/g,' ').replace(/&nbsp;/g,' ').replace(/&amp;/g,'&').replace(/\s+/g,' ');
+    if(!impHtml) return res.status(200).json(result);
 
-    // Extract German address: Street+Nr, PLZ City
-    const addrRe = /([A-ZÄÖÜ][a-zA-ZäöüÄÖÜß\-\.]+(?:str(?:aße|\.?)|gasse|weg|allee|ring|platz|damm|ufer|chaussee|straße)\s{0,3}\d{1,4}\s*[a-zA-Z]?)\s*[,\n\r]+\s*(\d{4,5})\s+([A-ZÄÖÜ][a-zA-ZäöüÄÖÜß\-\s]{2,30})/;
-    const m1 = text.match(addrRe);
-    if(m1) {
-      result.street   = m1[1].trim();
-      result.postcode = m1[2].trim();
-      result.city     = m1[3].trim().split(/[,\n<]/)[0].trim();
+    // Strip HTML tags and normalize whitespace
+    const text = impHtml
+      .replace(/<script[^>]*>[sS]*?</script>/gi,'')
+      .replace(/<style[^>]*>[sS]*?</style>/gi,'')
+      .replace(/<[^>]+>/g,' ')
+      .replace(/&nbsp;/g,' ').replace(/&amp;/g,'&').replace(/&#[0-9]+;/g,' ')
+      .replace(/[ 	]+/g,' ')
+      .replace(/
+s*
+/g,'
+')
+      .trim();
+
+    // Find German address pattern: Street Nr
+PLZ City
+    const fullAddr = text.match(/([A-ZÄÖÜ][a-zA-ZäöüÄÖÜßs-.]+(?:str(?:aße|.)?|gasse|weg|allee|ring|platz|damm|ufer|chaussee|straße)s*d{1,4}[a-zA-Z]?)s*[
+,]s*(d{5})s+([A-ZÄÖÜ][a-zA-ZäöüÄÖÜßs-]{2,30})/);
+    if(fullAddr) {
+      result.street   = fullAddr[1].trim();
+      result.postcode = fullAddr[2].trim();
+      result.city     = fullAddr[3].trim().replace(/s+/g,' ').split(/[
+,]/)[0].trim();
     } else {
       // Just PLZ + City
-      const m2 = text.match(/(\d{5})\s+([A-ZÄÖÜ][a-zA-ZäöüÄÖÜß\-\s]{2,25})(?=[\s,<\n])/);
-      if(m2) {
-        result.postcode = m2[1].trim();
-        result.city     = m2[2].trim().split(/[,\n<]/)[0].trim();
+      const plzOnly = text.match(/(d{5})s+([A-ZÄÖÜ][a-zA-ZäöüÄÖÜß-]{2,25})(?=[s
+,])/);
+      if(plzOnly) {
+        result.postcode = plzOnly[1].trim();
+        result.city     = plzOnly[2].trim().split(/[
+,]/)[0].trim();
       }
     }
-  }
 
-  return res.status(200).json(result);
+    return res.status(200).json(result);
+  } catch(e) {
+    return res.status(200).json({...result, error: e.message});
+  }
 }
