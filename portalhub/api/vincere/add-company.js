@@ -4,7 +4,9 @@ export default async function handler(req, res) {
   if(req.method!=='POST') return res.status(405).end();
 
   const cookieStr = req.headers.cookie||'';
-  const cookies = Object.fromEntries(cookieStr.split(';').map(c=>{const[k,...v]=c.trim().split('=');return[k,v.join('=')];}));
+  const cookies = Object.fromEntries(cookieStr.split(';').map(c=>{
+    const[k,...v]=c.trim().split('=');return[k,v.join('=')];
+  }));
   const token = cookies.vincere_token;
   if(!token) return res.status(401).json({error:'not_authenticated'});
 
@@ -14,25 +16,28 @@ export default async function handler(req, res) {
   const headers = {'Content-Type':'application/json','id-token':token,'x-api-key':apiKey};
   if(appId) headers['app-id']=appId;
 
-  const { name, city, postcode, website, street } = req.body||{};
+  const { name, city, postcode } = req.body||{};
   if(!name) return res.status(400).json({error:'name required'});
 
   const today = new Date().toISOString().split('T')[0]+'T00:00:00.000Z';
 
-  // Build location string from enriched or BA data
-  const locationParts = [street, postcode, city].filter(Boolean);
-  const location = locationParts.join(', ');
-
+  // Build payload - head_quarter must be a plain string like "73630 Remshalden"
   const payload = { company_name: name, registration_date: today };
-  if(location) payload.head_quarter = location;
-  if(website) payload.website = website;
+
+  // Add location: prefer "PLZ City", fallback to just city or just postcode
+  const locationParts = [postcode, city].filter(Boolean);
+  if(locationParts.length > 0) {
+    payload.head_quarter = locationParts.join(' ');
+  }
 
   try {
-    const r = await fetch('https://'+tenant+'.vincere.io/api/v2/company',{method:'POST',headers,body:JSON.stringify(payload)});
+    const r = await fetch('https://'+tenant+'.vincere.io/api/v2/company',{
+      method:'POST', headers, body:JSON.stringify(payload)
+    });
     const data = await r.json();
-    if(!r.ok) return res.status(200).json({ok:false,vincereError:data});
-    return res.status(200).json({ok:true,id:data.id,name:data.company_name});
+    if(!r.ok) return res.status(200).json({ok:false, vincereError:data});
+    return res.status(200).json({ok:true, id:data.id, name:data.company_name, location:payload.head_quarter||null});
   } catch(e) {
-    return res.status(500).json({ok:false,error:e.message});
+    return res.status(500).json({ok:false, error:e.message});
   }
 }
