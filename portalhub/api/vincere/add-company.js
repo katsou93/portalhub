@@ -21,14 +21,9 @@ export default async function handler(req, res) {
 
   const today = new Date().toISOString().split('T')[0]+'T00:00:00.000Z';
 
-  // Build payload - head_quarter must be a plain string like "73630 Remshalden"
+  // Step 1: Create the company
   const payload = { company_name: name, registration_date: today };
-
-  // Add location: prefer "PLZ City", fallback to just city or just postcode
-  const locationParts = [postcode, city].filter(Boolean);
-  if(locationParts.length > 0) {
-    payload.head_quarter = locationParts.join(' ');
-  }
+  if(city || postcode) payload.head_quarter = [postcode, city].filter(Boolean).join(' ');
 
   try {
     const r = await fetch('https://'+tenant+'.vincere.io/api/v2/company',{
@@ -36,7 +31,30 @@ export default async function handler(req, res) {
     });
     const data = await r.json();
     if(!r.ok) return res.status(200).json({ok:false, vincereError:data});
-    return res.status(200).json({ok:true, id:data.id, name:data.company_name, location:payload.head_quarter||null});
+
+    const companyId = data.id;
+
+    // Step 2: Add Location (the Google Maps location field in Vincere)
+    // location_name is required - use "PLZ City" or just city
+    if(city || postcode) {
+      const locationName = [postcode, city].filter(Boolean).join(' ');
+      const locPayload = {
+        location_name: locationName,
+        city: city || '',
+        postcode: postcode || '',
+        country_code: 'DE',
+        country: 'Germany',
+      };
+      try {
+        await fetch('https://'+tenant+'.vincere.io/api/v2/company/'+companyId+'/location',{
+          method:'POST', headers, body:JSON.stringify(locPayload)
+        });
+      } catch(e) {
+        // Location failed but company was created - not critical
+      }
+    }
+
+    return res.status(200).json({ok:true, id:companyId, name:data.company_name, location:[postcode,city].filter(Boolean).join(' ')});
   } catch(e) {
     return res.status(500).json({ok:false, error:e.message});
   }
