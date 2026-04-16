@@ -530,15 +530,23 @@ export default function App() {
 
   const handleAdd=async(name, city, postcode)=>{
     setAddingId(name);
-    const result=await addToVincere(name, city, postcode, country);
-    if(result && result.ok){
-      setVNames(p=>[...p,name]);
-      setActs(a=>[{id:Date.now(),text:'✓ '+name+' → Vincere',time:new Date().toLocaleTimeString('de-DE',{hour:'2-digit',minute:'2-digit'}),col:C.violet},...a]);
-    } else {
-      const errMsg = result?.vincereError ? JSON.stringify(result.vincereError).substring(0,80) : (result?.error||'Fehler');
-      setActs(a=>[{id:Date.now(),text:'⚠ '+name+': '+errMsg,time:new Date().toLocaleTimeString('de-DE',{hour:'2-digit',minute:'2-digit'}),col:C.red},...a]);
+    try{
+      const result = await addToVincere(name, city, postcode);
+      if(result && result.ok){
+        setVNames(p=>[...p,name]);
+        const loc=[postcode,city].filter(Boolean).join(' ');
+        setActs(a=>[{id:Date.now(),text:'+ '+name+(loc?' ('+loc+')':''),time:new Date().toLocaleTimeString('de-DE',{hour:'2-digit',minute:'2-digit'}),col:C.violet},...a]);
+      } else {
+        const err=result?.vincereError?JSON.stringify(result.vincereError).substring(0,60):(result?.error||'Fehler');
+        setActs(a=>[{id:Date.now(),text:'Fehler: '+name+' - '+err,time:new Date().toLocaleTimeString('de-DE',{hour:'2-digit',minute:'2-digit'}),col:C.red},...a]);
+      }
+      return result?.ok||false;
+    }catch(e){
+      setActs(a=>[{id:Date.now(),text:'Fehler: '+e.message,time:new Date().toLocaleTimeString('de-DE',{hour:'2-digit',minute:'2-digit'}),col:C.red},...a]);
+      return false;
+    }finally{
+      setAddingId(null);
     }
-    setAddingId(null);return result?.ok||false;
   };
 
   const nav=[
