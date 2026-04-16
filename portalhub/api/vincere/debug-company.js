@@ -10,35 +10,20 @@ export default async function handler(req, res) {
   const appId = process.env.VINCERE_APP_ID;
   const h = {'Content-Type':'application/json','id-token':token,'x-api-key':apiKey};
   if(appId) h['app-id']=appId;
-  const today = new Date().toISOString().split('T')[0]+'T00:00:00.000Z';
 
-  // Test different ways to set location - find what Vincere actually saves
-  const tests = [
-    { company_name:'TEST Loc 1', registration_date:today, head_quarter:'73630 Remshalden' },
-    { company_name:'TEST Loc 2', registration_date:today, head_quarter:'Remshalden' },
-  ];
+  // Look at the locations endpoint for an existing company (Remmert ID 14625)
+  const results = {};
 
-  const results = [];
-  for(const payload of tests){
-    const r = await fetch('https://'+tenant+'.vincere.io/api/v2/company',{method:'POST',headers:h,body:JSON.stringify(payload)});
-    const created = await r.json();
-    if(r.ok && created.id){
-      const dr = await fetch('https://'+tenant+'.vincere.io/api/v2/company/'+created.id,{headers:h});
-      const detail = await dr.json();
-      // Delete test
-      await fetch('https://'+tenant+'.vincere.io/api/v2/company/'+created.id,{method:'DELETE',headers:h});
-      results.push({
-        payload_head_quarter: payload.head_quarter,
-        saved_head_quarter: detail.head_quarter,
-        all_location_fields: {
-          head_quarter: detail.head_quarter,
-          phone: detail.phone,
-          external_map: detail.external_map,
-        }
-      });
-    } else {
-      results.push({payload_head_quarter: payload.head_quarter, error: created});
-    }
-  }
+  // 1. Check what locations endpoint exists
+  const locR = await fetch('https://'+tenant+'.vincere.io/api/v2/company/14625/location',{headers:h});
+  results.location_endpoint = {status: locR.status, body: await locR.text().then(t=>t.substring(0,300))};
+
+  // 2. Try POST to location endpoint
+  const postR = await fetch('https://'+tenant+'.vincere.io/api/v2/company/14625/location',{
+    method:'POST', headers:h,
+    body:JSON.stringify({address:'Borgholzhausener Str. 7',city:'Löhne',country_code:'DE',postcode:'32584'})
+  });
+  results.location_post = {status: postR.status, body: await postR.text().then(t=>t.substring(0,300))};
+
   return res.status(200).json(results);
 }
