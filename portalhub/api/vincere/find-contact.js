@@ -32,7 +32,14 @@ export default async function handler(req, res) {
   const NAV_WORDS = new Set(['Downloads','Extranet','Karriere','Jobs','Kontakt','Impressum',
     'Datenschutz','Login','Suche','Start','Home','News','Service','Produkte','Lösungen',
     'Unternehmen','Ausbildung','Studium','Bewerbung','Stellenangebote','Team','Über',
-    'Infos','Duale','Studiengänge','Bewerbungstipps','Checkliste']);
+    'Infos','Duale','Studiengänge','Bewerbungstipps','Checkliste',
+    // Legal/register terms that appear in Impressum
+    'Amtsgericht','Registergericht','Handelsregister','Finanzamt','Steuernummer',
+    'Umsatzsteuer','Aufsichtsbehörde','Bundesanstalt','Verbraucherzentrale',
+    'Datenschutzbeauftragter','Geschäftsführung','Vorstand','Aufsichtsrat',
+    'Pflichtangaben','Streitschlichtung','Plattform','Europäische','Kommission',
+    'Deutschland','Germany','Bayern','Berlin','Hamburg','München','Frankfurt',
+    'Hannover','Paderborn','Stuttgart','Köln','Düsseldorf','Dortmund','Leipzig']);
 
   function isValidName(first, last) {
     if(!first || !last) return false;
