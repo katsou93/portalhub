@@ -156,6 +156,51 @@ export default async function handler(req, res) {
     }
   }
 
+  // STAGE 3: If no website provided, try to guess domain
+  if(!website) {
+    const raw = name
+      .toLowerCase()
+      .replace(/gmbh\s*&\s*co\.?\s*kg|gmbh|ag|se|kg|e\.v\.|ohg|ug|ltd|inc|corp|llc/gi,'')
+      .replace(/[^a-z0-9äöüß]+/g,'-')
+      .replace(/ä/g,'ae').replace(/ö/g,'oe').replace(/ü/g,'ue').replace(/ß/g,'ss')
+      .replace(/-+/g,'-').replace(/^-+|-+$/g,'').substring(0,30);
+
+    const domains = [
+      'https://www.'+raw+'.de',
+      'https://www.'+raw+'.com',
+      'https://'+raw+'.de',
+      'https://'+raw+'.com',
+    ];
+
+    for(const base of domains) {
+      const pages = [base+'/karriere', base+'/jobs', base+'/kontakt', base+'/impressum', base];
+      let found = false;
+      for(const url of pages) {
+        try {
+          const r = await fetch(url, {
+            headers:{'User-Agent':'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'},
+            signal:AbortSignal.timeout(3000), redirect:'follow'
+          });
+          if(!r.ok) continue;
+          const text = processPage(await r.text());
+          const contact = extractContacts(text);
+          const email = findEmail(text);
+          if(contact) {
+            return res.status(200).json({
+              firstName:contact.firstName, lastName:contact.lastName,
+              email: email||result.email,
+              position: findPosition(text),
+              source: url.replace(base,'').replace('/','') || 'homepage'
+            });
+          }
+          if(email && !result.email) result.email = email;
+          found = true; // domain exists, no need to try next domain
+        } catch(e) {}
+      }
+      if(found) break; // domain responded, stop trying other domains
+    }
+  }
+
   // Return what we found (maybe just email)
   return res.status(200).json(result);
 }
