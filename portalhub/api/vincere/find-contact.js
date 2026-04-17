@@ -7,43 +7,69 @@ export default async function handler(req, res) {
 
   const result = { firstName:null, lastName:null, email:null, position:null, source:null };
 
-  // Helper: split full name into first/last
+  // Validate that a string looks like a real person name
+  // Must be 2 words, each 2-20 chars, no numbers, no common nav words
+  const NAV_WORDS = new Set(['downloads','extranet','karriere','jobs','kontakt','impressum',
+    'datenschutz','ueber','about','home','news','produkte','service','login','suche',
+    'mehr','alle','hier','jetzt','oder','und','fuer','mit','von','bei']);
+
+  function isValidName(str) {
+    if(!str) return false;
+    const parts = str.trim().split(/\s+/);
+    if(parts.length < 2 || parts.length > 3) return false;
+    for(const p of parts) {
+      if(p.length < 2 || p.length > 20) return false;
+      if(!/^[A-ZÄÖÜ]/.test(p)) return false; // must start with capital
+      if(/[0-9]/.test(p)) return false; // no numbers
+      if(NAV_WORDS.has(p.toLowerCase())) return false;
+    }
+    return true;
+  }
+
   function splitName(fullName) {
-    if(!fullName) return null;
     const parts = fullName.trim().split(/\s+/);
-    if(parts.length === 1) return { firstName: parts[0], lastName: '.' };
     return { firstName: parts[0], lastName: parts.slice(1).join(' ') };
   }
 
-  // Helper: extract email from text
   function findEmail(text) {
-    const m = text.match(/[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}/);
-    return m ? m[0] : null;
+    // Only real business emails, not noreply/info/admin
+    const emails = [...text.matchAll(/[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}/g)];
+    for(const m of emails) {
+      const e = m[0].toLowerCase();
+      if(!e.includes('noreply') && !e.includes('no-reply') && !e.includes('example')
+         && !e.includes('test@') && !e.includes('info@') && !e.includes('admin@')) {
+        return m[0];
+      }
+    }
+    // fallback: take info@ if nothing better
+    return emails.length ? emails[0][0] : null;
   }
 
-  // Helper: find HR/contact person in text
   function findContact(text) {
-    // German contact patterns
     const patterns = [
-      /(?:Ansprechpartner(?:in)?|Kontakt(?:person)?|Ihr(?:e)?\s+Ansprechpartner(?:in)?|bewerben\s+Sie\s+sich\s+bei|wenden\s+Sie\s+sich\s+an)[:\s]+([A-ZÄÖÜ][a-zA-ZäöüÄÖÜß]+(?:\s+[A-ZÄÖÜ][a-zA-ZäöüÄÖÜß]+){1,3})/,
-      /([A-ZÄÖÜ][a-zA-ZäöüÄÖÜß]+\s+[A-ZÄÖÜ][a-zA-ZäöüÄÖÜß]+)\s*(?:,\s*)?(?:HR|Human\s*Resources|Personal(?:leiter|leiterin|referent|referentin|manager|managerin)|Recruiting|Talent)/i,
-      /(?:HR|Human\s*Resources|Personal(?:leiter|leiterin|referent|referentin|manager|managerin)|Recruiting|Talent\s*Acquisition)[:\s,]+([A-ZÄÖÜ][a-zA-ZäöüÄÖÜß]+\s+[A-ZÄÖÜ][a-zA-ZäöüÄÖÜß]+)/i,
-      /(?:Geschäftsführer(?:in)?|CEO|Inhaber(?:in)?)[:\s]+([A-ZÄÖÜ][a-zA-ZäöüÄÖÜß]+(?:\s+[A-ZÄÖÜ][a-zA-ZäöüÄÖÜß]+){1,2})/,
+      // "Ansprechpartner: Max Mustermann"
+      /(?:Ansprechpartner(?:in)?|Ihr(?:e)?\s+Ansprechpartner(?:in)?|Kontakt(?:person)?)[:\s]+([A-ZÄÖÜ][a-zA-ZäöüÄÖÜß]+(?:\s+[A-ZÄÖÜ][a-zA-ZäöüÄÖÜß]+){1,2})/,
+      // "HR Manager Max Mustermann" or "Personalreferentin Jana Schmidt"
+      /(?:HR[-\s]?Manager(?:in)?|Personal(?:leiter|leiterin|referent|referentin|manager|managerin)|Recruiting(?:erin)?|Talent[^,\n]{0,20})[:\s,]+([A-ZÄÖÜ][a-zA-ZäöüÄÖÜß]+\s+[A-ZÄÖÜ][a-zA-ZäöüÄÖÜß]+)/,
+      // "Max Mustermann, HR Manager"
+      /([A-ZÄÖÜ][a-zA-ZäöüÄÖÜß]+\s+[A-ZÄÖÜ][a-zA-ZäöüÄÖÜß]+)\s*[,|]\s*(?:HR|Personal(?:leiter|leiterin|referent|referentin)|Recruiting|Talent)/,
+      // Geschäftsführer: Max Mustermann
+      /(?:Geschäftsführer(?:in)?|CEO|Inhaber(?:in)?|Vorstand)[:\s]+([A-ZÄÖÜ][a-zA-ZäöüÄÖÜß]+(?:\s+[A-ZÄÖÜ][a-zA-ZäöüÄÖÜß]+){1,2})/,
     ];
     for(const p of patterns) {
       const m = text.match(p);
-      if(m && m[1] && m[1].length > 3) return m[1].trim();
+      if(m && m[1] && isValidName(m[1])) return m[1].trim();
     }
     return null;
   }
 
-  // Helper: determine position title
   function findPosition(text) {
     const pos = [
-      [/HR\s*Manager(?:in)?/i,'HR Manager'],
+      [/HR[-\s]?Manager(?:in)?/i,'HR Manager/in'],
+      [/Talent\s*Acquisition/i,'Talent Acquisition'],
       [/Personal(?:leiter|leiterin)/i,'Personalleiter/in'],
       [/Personal(?:referent|referentin)/i,'Personalreferent/in'],
-      [/Recruiting|Talent\s*Acquisition/i,'Recruiting'],
+      [/Recruiting(?:erin)?/i,'Recruiting'],
       [/Geschäftsführer(?:in)?|CEO/i,'Geschäftsführer/in'],
       [/Inhaber(?:in)?/i,'Inhaber/in'],
     ];
@@ -51,80 +77,65 @@ export default async function handler(req, res) {
     return null;
   }
 
-  // STAGE 1: Check job text (from BA Stellenanzeige - passed as query param)
+  // STAGE 1: Job text from Stellenanzeige
   if(jobText) {
     const decoded = decodeURIComponent(jobText);
-    const contactName = findContact(decoded);
-    const email = findEmail(decoded);
-    if(contactName) {
-      const n = splitName(contactName);
-      result.firstName = n.firstName;
-      result.lastName = n.lastName;
-      result.email = email;
-      result.position = findPosition(decoded) || 'Ansprechpartner/in';
+    const n = findContact(decoded);
+    if(n) {
+      const s = splitName(n);
+      result.firstName = s.firstName; result.lastName = s.lastName;
+      result.email = findEmail(decoded);
+      result.position = findPosition(decoded)||'Ansprechpartner/in';
       result.source = 'stellenanzeige';
       return res.status(200).json(result);
     }
   }
 
-  // STAGE 2: Scrape website (Karriere, Kontakt, Impressum pages)
-  const scrapeUrls = [];
+  // STAGE 2: Scrape specific pages with priority order
+  const pages = [];
   if(website) {
-    const base = website.startsWith('http') ? website : 'https://'+website;
-    scrapeUrls.push(
-      base+'/karriere', base+'/jobs', base+'/kontakt', base+'/contact',
-      base+'/ueber-uns', base+'/team', base+'/impressum', base
+    const base = website.startsWith('http') ? website.replace(/\/$/, '') : 'https://'+website;
+    pages.push(
+      {url:base+'/karriere/ansprechpartner', priority:'hr'},
+      {url:base+'/jobs/kontakt', priority:'hr'},
+      {url:base+'/karriere', priority:'hr'},
+      {url:base+'/kontakt', priority:'contact'},
+      {url:base+'/team', priority:'team'},
+      {url:base+'/impressum', priority:'ceo'},
     );
   }
 
-  for(const url of scrapeUrls) {
+  for(const page of pages) {
     try {
-      const r = await fetch(url, {
+      const r = await fetch(page.url, {
         headers:{'User-Agent':'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'},
         signal:AbortSignal.timeout(4000), redirect:'follow'
       });
       if(!r.ok) continue;
       const html = await r.text();
-      const text = html.replace(/<[^>]+>/g,' ').replace(/\s+/g,' ');
+      // Strip HTML properly
+      const text = html
+        .replace(/<script[\s\S]*?<\/script>/gi,'')
+        .replace(/<style[\s\S]*?<\/style>/gi,'')
+        .replace(/<[^>]+>/g,' ')
+        .replace(/&nbsp;/g,' ').replace(/&amp;/g,'&').replace(/&lt;/g,'<').replace(/&gt;/g,'>')
+        .replace(/[ \t]+/g,' ').replace(/\n\s*\n/g,'\n').trim();
 
-      const contactName = findContact(text);
+      const n = findContact(text);
       const email = findEmail(text);
-      if(contactName) {
-        const n = splitName(contactName);
-        result.firstName = n.firstName;
-        result.lastName = n.lastName;
+
+      if(n && isValidName(n)) {
+        const s = splitName(n);
+        result.firstName = s.firstName; result.lastName = s.lastName;
         result.email = email;
-        result.position = findPosition(text) || 'Ansprechpartner/in';
-        result.source = url.split('/').pop() || 'website';
+        result.position = findPosition(text)||(page.priority==='ceo'?'Geschäftsführer/in':'Ansprechpartner/in');
+        result.source = page.url.split('/').pop()||'website';
         return res.status(200).json(result);
       }
-      // Found email without name - save it and continue looking for name
+      // Save email even without name
       if(email && !result.email) result.email = email;
     } catch(e) {}
   }
-
-  // STAGE 3: Google for HR contact (no API key needed - just HTML scraping)
-  try {
-    const q = encodeURIComponent('"'+name+'" '+(city||'')+' HR Manager OR Personalleiter Kontakt');
-    const r = await fetch('https://html.duckduckgo.com/html/?q='+q, {
-      method:'POST',
-      headers:{'User-Agent':'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36','Content-Type':'application/x-www-form-urlencoded'},
-      body:'q='+q,
-      signal:AbortSignal.timeout(4000)
-    });
-    if(r.ok) {
-      const html = await r.text();
-      const snippet = html.replace(/<[^>]+>/g,' ').replace(/\s+/g,' ');
-      const contactName = findContact(snippet);
-      if(contactName && !result.firstName) {
-        const n = splitName(contactName);
-        result.firstName = n.firstName;
-        result.lastName = n.lastName;
-        result.position = findPosition(snippet) || 'HR Manager';
-        result.source = 'google';
-      }
-    }
-  } catch(e) {}
 
   return res.status(200).json(result);
 }
