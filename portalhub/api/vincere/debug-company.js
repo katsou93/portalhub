@@ -11,19 +11,33 @@ export default async function handler(req, res) {
   const h = {'Content-Type':'application/json','id-token':token,'x-api-key':apiKey};
   if(appId) h['app-id']=appId;
 
-  // Look at the locations endpoint for an existing company (Remmert ID 14625)
   const results = {};
 
-  // 1. Check what locations endpoint exists
-  const locR = await fetch('https://'+tenant+'.vincere.io/api/v2/company/14625/location',{headers:h});
-  results.location_endpoint = {status: locR.status, body: await locR.text().then(t=>t.substring(0,300))};
-
-  // 2. Try POST to location endpoint
-  const postR = await fetch('https://'+tenant+'.vincere.io/api/v2/company/14625/location',{
-    method:'POST', headers:h,
-    body:JSON.stringify({address:'Borgholzhausener Str. 7',city:'Löhne',country_code:'DE',postcode:'32584'})
+  // Test 1: minimal - just first_name
+  const t1 = await fetch('https://'+tenant+'.vincere.io/api/v2/contact',{
+    method:'POST',headers:h,body:JSON.stringify({first_name:'Test'})
   });
-  results.location_post = {status: postR.status, body: await postR.text().then(t=>t.substring(0,300))};
+  results.test1_firstname_only = {status:t1.status, body:await t1.json()};
+
+  // Test 2: first_name + last_name
+  const t2 = await fetch('https://'+tenant+'.vincere.io/api/v2/contact',{
+    method:'POST',headers:h,body:JSON.stringify({first_name:'Test',last_name:'Person'})
+  });
+  results.test2_first_last = {status:t2.status, body:await t2.json()};
+
+  // Test 3: first + last + email
+  const t3 = await fetch('https://'+tenant+'.vincere.io/api/v2/contact',{
+    method:'POST',headers:h,body:JSON.stringify({first_name:'Test',last_name:'Person',email:'test.debug@example.com'})
+  });
+  const t3data = await t3.json();
+  results.test3_with_email = {status:t3.status, body:t3data};
+
+  // If test3 succeeded, delete it and check what fields come back
+  if(t3.ok && t3data.id) {
+    const getR = await fetch('https://'+tenant+'.vincere.io/api/v2/contact/'+t3data.id,{headers:h});
+    results.test3_detail = await getR.json();
+    await fetch('https://'+tenant+'.vincere.io/api/v2/contact/'+t3data.id,{method:'DELETE',headers:h});
+  }
 
   return res.status(200).json(results);
 }
