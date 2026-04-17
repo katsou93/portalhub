@@ -44,15 +44,37 @@ async function loadVincereCompanies() {
   } catch(e) { return null; }
 }
 
-async function addToVincere(name, city, postcode, website, jobText) {
+async function addToVincere(name, city, postcode, website) {
   try {
     const r = await fetch('/api/vincere/add-company', {
       method:'POST', headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({name, city, postcode, website, jobText})
+      body:JSON.stringify({name, city, postcode, website})
     });
     if(!r.ok) return {ok:false, error:'HTTP '+r.status};
     return await r.json();
   } catch(e) { return {ok:false, error:e.message}; }
+}
+
+async function findContact(name, city, jobText) {
+  try {
+    const params = new URLSearchParams({name, city:city||''});
+    if(jobText) params.set('jobText', encodeURIComponent(jobText));
+    const r = await fetch('/api/vincere/find-contact?'+params);
+    if(!r.ok) return null;
+    const d = await r.json();
+    return (d.firstName && d.lastName) ? d : null;
+  } catch(e) { return null; }
+}
+
+async function addContact(companyId, contact) {
+  try {
+    const r = await fetch('/api/vincere/add-contact', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({firstName:contact.firstName, lastName:contact.lastName, email:contact.email||null, position:contact.position||null, companyId})
+    });
+    if(!r.ok) return null;
+    return await r.json();
+  } catch(e) { return null; }
 }
 
 function fmt(d) {
@@ -535,17 +557,25 @@ export default function App() {
   const handleAdd=async(name, city, postcode, website, jobText)=>{
     setAddingId(name);
     try{
-      const result = await addToVincere(name, city, postcode, website, jobText);
-      if(result && result.ok){
-        setVNames(p=>[...p,name]);
-        const loc=[postcode,city].filter(Boolean).join(' ');
-        const contactInfo = result.contact ? ' · '+result.contact.name+(result.contact.email?' ('+result.contact.email+')':'') : '';
-        setActs(a=>[{id:Date.now(),text:'✓ '+name+(loc?' · '+loc:'')+contactInfo,time:new Date().toLocaleTimeString('de-DE',{hour:'2-digit',minute:'2-digit'}),col:C.violet},...a]);
-      } else {
-        const err=result?.vincereError?JSON.stringify(result.vincereError).substring(0,60):(result?.error||'Fehler');
+      const compResult = await addToVincere(name, city, postcode, website);
+      if(!compResult || !compResult.ok){
+        const err=compResult?.vincereError?JSON.stringify(compResult.vincereError).substring(0,60):(compResult?.error||'Fehler');
         setActs(a=>[{id:Date.now(),text:'⚠ '+name+': '+err,time:new Date().toLocaleTimeString('de-DE',{hour:'2-digit',minute:'2-digit'}),col:C.red},...a]);
+        return false;
       }
-      return result?.ok||false;
+      setVNames(p=>[...p,name]);
+      const loc=[postcode,city].filter(Boolean).join(' ');
+      setActs(a=>[{id:Date.now(),text:'✓ '+name+(loc?' · '+loc:''),time:new Date().toLocaleTimeString('de-DE',{hour:'2-digit',minute:'2-digit'}),col:C.violet},...a]);
+      const companyId=compResult.id;
+      findContact(name,city,jobText).then(async contact=>{
+        if(!contact)return;
+        const cr=await addContact(companyId,contact);
+        if(cr&&cr.ok){
+          const info=contact.firstName+' '+contact.lastName+(contact.email?' ('+contact.email+')':'');
+          setActs(a=>[{id:Date.now(),text:'👤 '+info+' → '+name,time:new Date().toLocaleTimeString('de-DE',{hour:'2-digit',minute:'2-digit'}),col:C.green},...a]);
+        }
+      });
+      return true;
     }catch(e){
       setActs(a=>[{id:Date.now(),text:'⚠ Fehler: '+e.message,time:new Date().toLocaleTimeString('de-DE',{hour:'2-digit',minute:'2-digit'}),col:C.red},...a]);
       return false;
