@@ -44,11 +44,11 @@ async function loadVincereCompanies() {
   } catch(e) { return null; }
 }
 
-async function addToVincere(name, city, postcode) {
+async function addToVincere(name, city, postcode, website, jobText) {
   try {
     const r = await fetch('/api/vincere/add-company', {
       method:'POST', headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({name, city, postcode})
+      body:JSON.stringify({name, city, postcode, website, jobText})
     });
     if(!r.ok) return {ok:false, error:'HTTP '+r.status};
     return await r.json();
@@ -75,9 +75,13 @@ function nameMatch(a,b) {
   return shorter.filter(w=>longer.some(lw=>lw.includes(w)||w.includes(lw))).length/shorter.length>=0.6;
 }
 function parseJob(j) {
+  // Extract contact text from job description fields
+  const jobText = [j.arbeitgeberdarstellung, j.stellenbeschreibung, j.taetigkeit]
+    .filter(Boolean).join(' ').substring(0, 500);
   return { id:j.hashId||j.refnr||Math.random().toString(36), title:j.titel||'—',
     company:j.arbeitgeber||'—', city:j.arbeitsort?.ort||'—',
     postcode:j.arbeitsort?.plz||'', country:'DE',
+    jobText: jobText || '',
     posted:fmt(j.aktuelleVeroeffentlichungsdatum), type:mapA(j.angebotsart), refnr:j.refnr };
 }
 
@@ -117,7 +121,7 @@ function JobCard({job,names,onAdd,addingId}) {
       <div style={{display:'flex',alignItems:'center',gap:7,flexShrink:0}}>
         <span style={{fontSize:11,color:C.faint}}>{job.posted}</span>
         <span style={{fontSize:10.5,background:C.bg3,border:'1px solid '+C.border,color:C.faint,padding:'2px 7px',borderRadius:5}}>{job.type}</span>
-        <VBadge company={job.company} names={names} onAdd={()=>onAdd(job.company, job.city, job.postcode)} adding={addingId===job.company} />
+        <VBadge company={job.company} names={names} onAdd={()=>onAdd(job.company, job.city, job.postcode, null, job.jobText)} adding={addingId===job.company} />
       </div>
     </div>
   );
@@ -160,7 +164,7 @@ function SearchView({names,onAdd,addingId,setSH,connected}) {
     const newJobs=jobs.filter(j=>j.company&&j.company!=='—'&&!names.some(n=>nameMatch(n,j.company)));
     const seen=new Set(); const unique=newJobs.filter(j=>{if(seen.has(j.company))return false;seen.add(j.company);return true;});
     if(!unique.length)return; setBulkAdding(true); setBulkDone(0);
-    for(const j of unique){await onAdd(j.company,j.city,j.postcode);setBulkDone(d=>d+1);}
+    for(const j of unique){await onAdd(j.company,j.city,j.postcode,null,j.jobText);setBulkDone(d=>d+1);}
     setBulkAdding(false);
   };
 
@@ -528,21 +532,22 @@ export default function App() {
     });
   },[]);
 
-  const handleAdd=async(name, city, postcode)=>{
+  const handleAdd=async(name, city, postcode, website, jobText)=>{
     setAddingId(name);
     try{
-      const result = await addToVincere(name, city, postcode);
+      const result = await addToVincere(name, city, postcode, website, jobText);
       if(result && result.ok){
         setVNames(p=>[...p,name]);
         const loc=[postcode,city].filter(Boolean).join(' ');
-        setActs(a=>[{id:Date.now(),text:'+ '+name+(loc?' ('+loc+')':''),time:new Date().toLocaleTimeString('de-DE',{hour:'2-digit',minute:'2-digit'}),col:C.violet},...a]);
+        const contactInfo = result.contact ? ' · '+result.contact.name+(result.contact.email?' ('+result.contact.email+')':'') : '';
+        setActs(a=>[{id:Date.now(),text:'✓ '+name+(loc?' · '+loc:'')+contactInfo,time:new Date().toLocaleTimeString('de-DE',{hour:'2-digit',minute:'2-digit'}),col:C.violet},...a]);
       } else {
         const err=result?.vincereError?JSON.stringify(result.vincereError).substring(0,60):(result?.error||'Fehler');
-        setActs(a=>[{id:Date.now(),text:'Fehler: '+name+' - '+err,time:new Date().toLocaleTimeString('de-DE',{hour:'2-digit',minute:'2-digit'}),col:C.red},...a]);
+        setActs(a=>[{id:Date.now(),text:'⚠ '+name+': '+err,time:new Date().toLocaleTimeString('de-DE',{hour:'2-digit',minute:'2-digit'}),col:C.red},...a]);
       }
       return result?.ok||false;
     }catch(e){
-      setActs(a=>[{id:Date.now(),text:'Fehler: '+e.message,time:new Date().toLocaleTimeString('de-DE',{hour:'2-digit',minute:'2-digit'}),col:C.red},...a]);
+      setActs(a=>[{id:Date.now(),text:'⚠ Fehler: '+e.message,time:new Date().toLocaleTimeString('de-DE',{hour:'2-digit',minute:'2-digit'}),col:C.red},...a]);
       return false;
     }finally{
       setAddingId(null);
