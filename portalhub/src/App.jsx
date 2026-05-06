@@ -70,7 +70,12 @@ async function addContact(companyId, contact) {
   try {
     const r = await fetch('/api/vincere/add-contact', {
       method:'POST', headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({firstName:contact.firstName, lastName:contact.lastName, email:contact.email||null, position:contact.position||null, companyId})
+      body:JSON.stringify({
+        firstName:contact.firstName, lastName:contact.lastName,
+        email:contact.email||null, phone:contact.phone||null,
+        position:contact.position||null, companyId,
+        jobs:contact.jobs||[]
+      })
     });
     if(!r.ok) return null;
     return await r.json();
@@ -569,10 +574,15 @@ export default function App() {
       const companyId=compResult.id;
       findContact(name,city,jobText).then(async contact=>{
         if(!contact)return;
+        // If find-contact found a website, update company with it
+        if(contact.website && !website){
+          try{ await fetch('/api/vincere/add-company',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({id:companyId,website:contact.website})}); }catch(e){}
+        }
         const cr=await addContact(companyId,contact);
         if(cr&&cr.ok){
           const info=contact.firstName+' '+contact.lastName+(contact.email?' ('+contact.email+')':'');
-          setActs(a=>[{id:Date.now(),text:'👤 '+info+' → '+name,time:new Date().toLocaleTimeString('de-DE',{hour:'2-digit',minute:'2-digit'}),col:C.green},...a]);
+          const jobInfo=contact.jobs&&contact.jobs.length?' · Jobs: '+contact.jobs.slice(0,2).join(', '):'';
+          setActs(a=>[{id:Date.now(),text:'👤 '+info+jobInfo,time:new Date().toLocaleTimeString('de-DE',{hour:'2-digit',minute:'2-digit'}),col:C.green},...a]);
         }
       });
       return true;
