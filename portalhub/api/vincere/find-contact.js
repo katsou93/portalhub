@@ -5,96 +5,86 @@ export default async function handler(req, res) {
   const { name, city, website, jobText } = req.query;
   if(!name) return res.status(400).json({error:'name required'});
 
-  const result = { firstName:null, lastName:null, email:null, position:null, source:null };
+  const result = { firstName:null, lastName:null, email:null, phone:null, position:null, source:null, website:null, jobs:[] };
 
-  // Common German first names list for validation
-  const COMMON_FIRST_NAMES = new Set([
-    'Anna','Marie','Laura','Sarah','Julia','Lea','Lena','Emma','Hannah','Sophie',
-    'Lisa','Jana','Sandra','Sabine','Andrea','Claudia','Nicole','Katharina','Christina',
-    'Melina','Vanessa','Maja','Rebecca','Jolina','Stefanie','Monika','Petra','Birgit',
-    'Max','Moritz','Felix','Jonas','Lukas','Jan','Tim','Thomas','Michael','Stefan',
-    'Andreas','Christian','Daniel','Marco','Simon','Ben','Patrick','Sebastian','Markus',
-    'Roman','Pascal','Peter','Klaus','Frank','Jürgen','Werner','Dieter','Hans','Karl',
-    'Maria','Susanne','Angelika','Martina','Ute','Renate','Helga','Ingrid','Brigitte',
-    'Alexander','Florian','Tobias','Philipp','Matthias','Johannes','David','Kevin',
-    'Stephan','Thomas','Martin','Georg','Robert','Wolfgang','Heinrich','Gerhard',
-    'Rebecca','Jennifer','Melissa','Tanja','Nadine','Jessica','Annette','Ursula','Anja',
-  ]);
-
-  function isLikelyFirstName(word) {
-    return COMMON_FIRST_NAMES.has(word) || (word.length >= 3 && word.length <= 15 && /^[A-ZÄÖÜ][a-zA-ZäöüÄÖÜß]+$/.test(word));
-  }
-
-  function isLikelyLastName(word) {
-    return word.length >= 2 && word.length <= 25 && /^[A-ZÄÖÜ][a-zA-ZäöüÄÖÜß\-]+$/.test(word);
-  }
+  // Common German first names for validation
+  const FIRST_NAMES = new Set(['Anna','Marie','Laura','Sarah','Julia','Lea','Lena','Emma','Hannah','Sophie',
+    'Lisa','Jana','Sandra','Sabine','Andrea','Claudia','Nicole','Katharina','Christina','Melina','Vanessa',
+    'Maja','Rebecca','Jolina','Stefanie','Monika','Petra','Birgit','Anja','Nadine','Jessica','Tanja',
+    'Max','Felix','Jonas','Lukas','Jan','Tim','Thomas','Michael','Stefan','Andreas','Christian','Daniel',
+    'Marco','Simon','Ben','Patrick','Sebastian','Markus','Roman','Pascal','Peter','Klaus','Frank',
+    'Alexander','Florian','Tobias','Philipp','Matthias','Johannes','David','Kevin','Stephan','Martin',
+    'Georg','Robert','Wolfgang','Heinrich','Gerhard','Jürgen','Werner','Dieter','Hans','Karl',
+    'Sandra','Angelika','Martina','Ute','Renate','Helga','Ingrid','Brigitte','Ursula','Jennifer',
+    'Melissa','Annette','Rebecca','Susanne','Silke','Katrin','Nina','Sonja','Marion','Iris']);
 
   const NAV_WORDS = new Set(['Downloads','Extranet','Karriere','Jobs','Kontakt','Impressum',
     'Datenschutz','Login','Suche','Start','Home','News','Service','Produkte','Lösungen',
     'Unternehmen','Ausbildung','Studium','Bewerbung','Stellenangebote','Team','Über',
     'Infos','Duale','Studiengänge','Bewerbungstipps','Checkliste',
-    // Legal/register terms that appear in Impressum
     'Amtsgericht','Registergericht','Handelsregister','Finanzamt','Steuernummer',
     'Umsatzsteuer','Aufsichtsbehörde','Bundesanstalt','Verbraucherzentrale',
     'Datenschutzbeauftragter','Geschäftsführung','Vorstand','Aufsichtsrat',
-    'Pflichtangaben','Streitschlichtung','Plattform','Europäische','Kommission',
     'Deutschland','Germany','Bayern','Berlin','Hamburg','München','Frankfurt',
-    'Hannover','Paderborn','Stuttgart','Köln','Düsseldorf','Dortmund','Leipzig']);
+    'Hannover','Paderborn','Stuttgart','Köln','Düsseldorf','Dortmund','Leipzig',
+    'Strasse','Straße','Platz','Weg','Ring','Allee','Gasse','Damm']);
 
   function isValidName(first, last) {
-    if(!first || !last) return false;
-    if(NAV_WORDS.has(first) || NAV_WORDS.has(last)) return false;
-    if(!isLikelyFirstName(first)) return false;
-    if(!isLikelyLastName(last)) return false;
-    if(first.length < 2 || last.length < 2) return false;
+    if(!first||!last) return false;
+    if(NAV_WORDS.has(first)||NAV_WORDS.has(last)) return false;
+    if(!/^[A-ZÄÖÜ][a-zA-ZäöüÄÖÜß\-]{1,19}$/.test(first)) return false;
+    if(!/^[A-ZÄÖÜ][a-zA-ZäöüÄÖÜß\-]{1,24}$/.test(last)) return false;
+    if(/\d/.test(first)||/\d/.test(last)) return false;
     return true;
   }
 
-  function findEmail(text) {
-    const emails = [...text.matchAll(/[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}/g)];
-    // prefer personal/hr emails over generic ones
-    const personal = emails.find(m => {
-      const e = m[0].toLowerCase();
-      return !e.startsWith('info@') && !e.startsWith('post@') && !e.startsWith('kontakt@') 
-             && !e.startsWith('mail@') && !e.startsWith('office@') && !e.startsWith('jobs@');
-    });
-    if(personal) return personal[0];
-    // fallback to any email
-    return emails.length ? emails[0][0] : null;
+  // Find HR/Bewerbung emails first, then fallback
+  function findBestEmail(text) {
+    const all = [...text.matchAll(/[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}/g)].map(m=>m[0]);
+    // Priority 1: HR/Bewerbung specific
+    const hr = all.find(e=>/bewerbung|hr@|personal@|karriere@|recruiting@|jobs@/i.test(e));
+    if(hr) return hr;
+    // Priority 2: Named person email (firstname.lastname@)
+    const named = all.find(e=>/^[a-z]+\.[a-z]+@/i.test(e) && !/noreply|no-reply|test@|example/i.test(e));
+    if(named) return named;
+    // Priority 3: Any non-generic
+    const nonGeneric = all.find(e=>!/^(?:info|kontakt|post|mail|office|hallo|hello|support|service|sales|vertrieb|marketing)@/i.test(e));
+    if(nonGeneric) return nonGeneric;
+    // Fallback: whatever
+    return all[0]||null;
   }
 
-  function extractContacts(text) {
-    // Strategy 1: explicit keywords before name
-    const explicit = [
-      /(?:Ansprechpartner(?:in)?|Ihr(?:e)?\s+Ansprechpartner(?:in)?|Kontaktperson|wenden\s+Sie\s+sich\s+an)[:\s]+([A-ZÄÖÜ][a-zA-ZäöüÄÖÜß]+)\s+([A-ZÄÖÜ][a-zA-ZäöüÄÖÜß\-]+)/g,
-      /(?:Jetzt\s+Kontakt\s+mit|Bei\s+Fragen\s+(?:hilft|steht|wenden))[^a-zA-Z]{0,20}([A-ZÄÖÜ][a-zA-ZäöüÄÖÜß]+)\s+([A-ZÄÖÜ][a-zA-ZäöüÄÖÜß\-]+)\s+(?:aufnehmen|wenden|hilft)/g,
+  function findPhone(text) {
+    const m = text.match(/(?:Tel(?:efon|\.)?|Fon|Phone|\+49)[\s.:]*([\d\s\(\)\-\/\+]{8,20})/i);
+    if(m) return m[1].trim().replace(/\s+/g,' ');
+    // German format: 0xxx xxx or +49 xxx
+    const m2 = text.match(/(?:^|\s)(\+49[\s\d\-\/]{6,18}|0[\d]{3,5}[\s\-\/]?[\d\s\-\/]{4,12})(?=\s|$)/m);
+    return m2 ? m2[1].trim() : null;
+  }
+
+  function extractContact(text) {
+    const patterns = [
+      /(?:Ansprechpartner(?:in)?|Ihr(?:e)?\s+Ansprechpartner(?:in)?|Kontaktperson|Bei\s+Fragen)[:\s]+([A-ZÄÖÜ][a-zA-ZäöüÄÖÜß]+)\s+([A-ZÄÖÜ][a-zA-ZäöüÄÖÜß\-]+)/,
+      /([A-ZÄÖÜ][a-zA-ZäöüÄÖÜß]+)\s+([A-ZÄÖÜ][a-zA-ZäöüÄÖÜß\-]+)[\s\n,]+(?:HR[-\s]?Manager(?:in)?|Personal(?:referent|referentin|leiter|leiterin|manager|managerin)|Recruiting|Talent)/,
+      /(?:HR[-\s]?Manager(?:in)?|Personal(?:referent|referentin|leiter|leiterin|manager|managerin)|Recruiting)[:\s,]+([A-ZÄÖÜ][a-zA-ZäöüÄÖÜß]+)\s+([A-ZÄÖÜ][a-zA-ZäöüÄÖÜß\-]+)/,
+      /(?:Geschäftsführer(?:in)?|CEO|Inhaber(?:in)?)[:\s]+([A-ZÄÖÜ][a-zA-ZäöüÄÖÜß]+)\s+([A-ZÄÖÜ][a-zA-ZäöüÄÖÜß\-]+)/,
     ];
-    for(const pattern of explicit) {
-      const m = pattern.exec(text);
-      if(m && isValidName(m[1], m[2])) return {firstName:m[1], lastName:m[2], confidence:'high'};
+    for(const p of patterns) {
+      const m = text.match(p);
+      if(m && isValidName(m[1],m[2])) return {firstName:m[1],lastName:m[2]};
     }
-
-    // Strategy 2: name followed by HR title
-    const afterName = /([A-ZÄÖÜ][a-zA-ZäöüÄÖÜß]+)\s+([A-ZÄÖÜ][a-zA-ZäöüÄÖÜß\-]+)[\s\n,]+(?:HR|Personal(?:referent|leiterin|referentin|leiter|manager|managerin)|Recruiting|Ausbilder(?:in)?|Teamleit(?:er|ung)|Learning)/g;
-    let m2;
-    while((m2 = afterName.exec(text)) !== null) {
-      if(isValidName(m2[1], m2[2])) return {firstName:m2[1], lastName:m2[2], confidence:'medium'};
+    // Also try: person name on its own line where next/prev line has HR title
+    const lines = text.split('\n');
+    for(let i=0;i<lines.length;i++) {
+      const l = lines[i].trim();
+      const prev = (lines[i-1]||'').trim();
+      const next = (lines[i+1]||'').trim();
+      const hrContext = prev+' '+next;
+      if(/HR|Personal|Recruiting|Ausbilder|Teamleit/i.test(hrContext)) {
+        const m2 = l.match(/^([A-ZÄÖÜ][a-zA-ZäöüÄÖÜß]+)\s+([A-ZÄÖÜ][a-zA-ZäöüÄÖÜß\-]+)$/);
+        if(m2 && isValidName(m2[1],m2[2])) return {firstName:m2[1],lastName:m2[2]};
+      }
     }
-
-    // Strategy 3: HR title followed by name
-    const beforeName = /(?:HR|Personal(?:referent|leiterin|referentin|leiter|manager|managerin)|Recruiting|Ausbilder(?:in)?|Teamleit(?:er|ung))[^\n]{0,30}\n([A-ZÄÖÜ][a-zA-ZäöüÄÖÜß]+)\s+([A-ZÄÖÜ][a-zA-ZäöüÄÖÜß\-]+)/g;
-    let m3;
-    while((m3 = beforeName.exec(text)) !== null) {
-      if(isValidName(m3[1], m3[2])) return {firstName:m3[1], lastName:m3[2], confidence:'medium'};
-    }
-
-    // Strategy 4: Geschäftsführer/CEO patterns
-    const ceo = /(?:Geschäftsführer(?:in)?|CEO|Inhaber(?:in)?)[:\s]+([A-ZÄÖÜ][a-zA-ZäöüÄÖÜß]+)\s+([A-ZÄÖÜ][a-zA-ZäöüÄÖÜß\-]+)/g;
-    let m4;
-    while((m4 = ceo.exec(text)) !== null) {
-      if(isValidName(m4[1], m4[2])) return {firstName:m4[1], lastName:m4[2], confidence:'low'};
-    }
-
     return null;
   }
 
@@ -103,14 +93,30 @@ export default async function handler(req, res) {
     if(/Talent\s*Acquisition/i.test(text)) return 'Talent Acquisition';
     if(/Personal(?:leiter|leiterin)/i.test(text)) return 'Personalleiter/in';
     if(/Personal(?:referent|referentin)/i.test(text)) return 'Personalreferent/in';
-    if(/Ausbilder(?:in)?/i.test(text)) return 'Ausbilder/in';
     if(/Recruiting/i.test(text)) return 'Recruiting';
+    if(/Ausbilder(?:in)?/i.test(text)) return 'Ausbilder/in';
     if(/Geschäftsführer(?:in)?|CEO/i.test(text)) return 'Geschäftsführer/in';
     if(/Inhaber(?:in)?/i.test(text)) return 'Inhaber/in';
     return 'Ansprechpartner/in';
   }
 
-  function processPage(html) {
+  function extractJobs(text) {
+    // Common job title patterns in German
+    const jobPatterns = [
+      /([A-ZÄÖÜ][a-zA-ZäöüÄÖÜß\-]+(?:\s+[a-zA-ZäöüÄÖÜß\-]+){0,3}\s*(?:Programmierer|Entwickler|Ingenieur|Techniker|Administrator|Manager|Konstrukteur|Mechatroniker|Elektriker|Schlosser|Dreher|Fräser|Schweißer|Monteur|Meister|Spezialist|Berater|Analyst|Architekt|Designer|Projektleiter))(?:\s*\(m\/w\/d\))?/gi,
+    ];
+    const jobs = new Set();
+    for(const p of jobPatterns) {
+      const matches = [...text.matchAll(p)];
+      for(const m of matches) {
+        const job = m[1].trim().replace(/\s+/g,' ');
+        if(job.length > 3 && job.length < 60) jobs.add(job);
+      }
+    }
+    return [...jobs].slice(0,10);
+  }
+
+  function processHtml(html) {
     return html
       .replace(/<script[\s\S]*?<\/script>/gi,'')
       .replace(/<style[\s\S]*?<\/style>/gi,'')
@@ -119,95 +125,72 @@ export default async function handler(req, res) {
       .replace(/[ \t]+/g,' ').replace(/\n\s*\n+/g,'\n').trim();
   }
 
-  // STAGE 1: Job text
+  // STAGE 1: Job text from Stellenanzeige
   if(jobText) {
     const decoded = decodeURIComponent(jobText);
-    const contact = extractContacts(decoded);
+    const contact = extractContact(decoded);
     if(contact) {
-      return res.status(200).json({
-        firstName:contact.firstName, lastName:contact.lastName,
-        email:findEmail(decoded), position:findPosition(decoded), source:'stellenanzeige'
-      });
+      result.firstName=contact.firstName; result.lastName=contact.lastName;
+      result.email=findBestEmail(decoded); result.phone=findPhone(decoded);
+      result.position=findPosition(decoded); result.source='stellenanzeige';
+      if(result.firstName) return res.status(200).json(result);
     }
   }
 
-  // STAGE 2: Website pages in priority order
-  if(website) {
-    const base = website.startsWith('http') ? website.replace(/\/$/, '') : 'https://'+website;
+  // STAGE 2: Scrape website pages
+  const bases = [];
+  if(website) bases.push(website.startsWith('http') ? website.replace(/\/$/, '') : 'https://'+website);
+
+  // Also try domain guessing if no website
+  if(!website) {
+    const raw = name.toLowerCase()
+      .replace(/gmbh\s*&\s*co\.?\s*kg|gmbh|ag\s*$|\bse\b|\bkg\b|e\.v\.|ohg|\bug\b/gi,'')
+      .replace(/ä/g,'ae').replace(/ö/g,'oe').replace(/ü/g,'ue').replace(/ß/g,'ss')
+      .replace(/[^a-z0-9]+/g,'-').replace(/^-+|-+$/g,'').substring(0,30);
+    bases.push('https://www.'+raw+'.de', 'https://www.'+raw+'.com');
+  }
+
+  for(const base of bases) {
     const pages = [
-      base+'/karriere', base+'/jobs', base+'/de/karriere',
-      base+'/kontakt', base+'/contact', base+'/team',
-      base+'/impressum', base,
+      {url:base+'/karriere', type:'hr'},
+      {url:base+'/jobs', type:'hr'},
+      {url:base+'/de/karriere', type:'hr'},
+      {url:base+'/kontakt', type:'contact'},
+      {url:base+'/team', type:'team'},
+      {url:base+'/impressum', type:'ceo'},
+      {url:base, type:'home'},
     ];
 
-    for(const url of pages) {
+    let domainWorked = false;
+    for(const page of pages) {
       try {
-        const r = await fetch(url, {
-          headers:{'User-Agent':'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120.0.0.0'},
+        const r = await fetch(page.url, {
+          headers:{'User-Agent':'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'},
           signal:AbortSignal.timeout(4000), redirect:'follow'
         });
         if(!r.ok) continue;
-        const text = processPage(await r.text());
-        const contact = extractContacts(text);
-        const email = findEmail(text);
-        if(contact) {
-          return res.status(200).json({
-            firstName:contact.firstName, lastName:contact.lastName,
-            email: email||result.email,
-            position: findPosition(text),
-            source: url.replace(base,'').replace('/','') || 'homepage'
-          });
-        }
+        domainWorked = true;
+        const text = processHtml(await r.text());
+        const contact = extractContact(text);
+        const email = findBestEmail(text);
+        const phone = findPhone(text);
+        const jobs = extractJobs(text);
+
+        if(!result.website) result.website = base;
         if(email && !result.email) result.email = email;
+        if(phone && !result.phone) result.phone = phone;
+        if(jobs.length && !result.jobs.length) result.jobs = jobs;
+
+        if(contact && isValidName(contact.firstName, contact.lastName)) {
+          result.firstName=contact.firstName; result.lastName=contact.lastName;
+          result.position=findPosition(text)||(page.type==='ceo'?'Geschäftsführer/in':'Ansprechpartner/in');
+          result.source=page.url.replace(base,'').replace('/','') || 'homepage';
+          return res.status(200).json(result);
+        }
       } catch(e) {}
     }
+    if(domainWorked) break; // Domain responded, stop trying others
   }
 
-  // STAGE 3: If no website provided, try to guess domain
-  if(!website) {
-    const raw = name
-      .toLowerCase()
-      .replace(/gmbh\s*&\s*co\.?\s*kg|gmbh|ag|se|kg|e\.v\.|ohg|ug|ltd|inc|corp|llc/gi,'')
-      .replace(/[^a-z0-9äöüß]+/g,'-')
-      .replace(/ä/g,'ae').replace(/ö/g,'oe').replace(/ü/g,'ue').replace(/ß/g,'ss')
-      .replace(/-+/g,'-').replace(/^-+|-+$/g,'').substring(0,30);
-
-    const domains = [
-      'https://www.'+raw+'.de',
-      'https://www.'+raw+'.com',
-      'https://'+raw+'.de',
-      'https://'+raw+'.com',
-    ];
-
-    for(const base of domains) {
-      const pages = [base+'/karriere', base+'/jobs', base+'/kontakt', base+'/impressum', base];
-      let found = false;
-      for(const url of pages) {
-        try {
-          const r = await fetch(url, {
-            headers:{'User-Agent':'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'},
-            signal:AbortSignal.timeout(3000), redirect:'follow'
-          });
-          if(!r.ok) continue;
-          const text = processPage(await r.text());
-          const contact = extractContacts(text);
-          const email = findEmail(text);
-          if(contact) {
-            return res.status(200).json({
-              firstName:contact.firstName, lastName:contact.lastName,
-              email: email||result.email,
-              position: findPosition(text),
-              source: url.replace(base,'').replace('/','') || 'homepage'
-            });
-          }
-          if(email && !result.email) result.email = email;
-          found = true; // domain exists, no need to try next domain
-        } catch(e) {}
-      }
-      if(found) break; // domain responded, stop trying other domains
-    }
-  }
-
-  // Return what we found (maybe just email)
   return res.status(200).json(result);
 }
