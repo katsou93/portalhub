@@ -21,7 +21,7 @@ export default async function handler(req, res) {
 
   const today = new Date().toISOString().split('T')[0]+'T00:00:00.000Z';
 
-  // Create company
+  // Build company payload
   const companyPayload = { company_name: name, registration_date: today };
   if(city||postcode) companyPayload.head_quarter = [postcode,city].filter(Boolean).join(' ');
   if(website) companyPayload.website = website;
@@ -31,11 +31,10 @@ export default async function handler(req, res) {
       method:'POST', headers, body:JSON.stringify(companyPayload)
     });
     const compData = await compR.json();
-    if(!compR.ok) return res.status(200).json({ok:false, vincereError:compData});
-
+    if(!compR.ok) return res.status(200).json({ok:false,vincereError:compData});
     const companyId = compData.id;
 
-    // Add Location
+    // Add Location (Google Maps field)
     if(city||postcode) {
       try {
         await fetch('https://'+tenant+'.vincere.io/api/v2/company/'+companyId+'/location',{
@@ -46,10 +45,10 @@ export default async function handler(req, res) {
             country_code:'DE', country:'Germany'
           })
         });
-      }catch(e){}
+      } catch(e) {}
     }
 
-    return res.status(200).json({ok:true, id:companyId, name:compData.company_name});
+    return res.status(200).json({ok:true, id:companyId, name:compData.company_name, website: website||null});
   } catch(e) {
     return res.status(500).json({ok:false, error:e.message});
   }
