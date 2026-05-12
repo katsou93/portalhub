@@ -608,9 +608,9 @@ export default function App() {
   const handleAdd=async(name, city, postcode, website, jobText, refnr)=>{
     setAddingId(name);
     try{
+      // Step 1: Create company
       const compResult = await addToVincere(name, city, postcode, website);
-      if(compResult) compResult._refnr = refnr;
-      if(!compResult || !compResult.ok){
+      if(!compResult||!compResult.ok){
         const err=compResult?.vincereError?JSON.stringify(compResult.vincereError).substring(0,60):(compResult?.error||'Fehler');
         setActs(a=>[{id:Date.now(),text:'⚠ '+name+': '+err,time:new Date().toLocaleTimeString('de-DE',{hour:'2-digit',minute:'2-digit'}),col:C.red},...a]);
         return false;
@@ -618,20 +618,26 @@ export default function App() {
       setVNames(p=>[...p,name]);
       const loc=[postcode,city].filter(Boolean).join(' ');
       setActs(a=>[{id:Date.now(),text:'✓ '+name+(loc?' · '+loc:''),time:new Date().toLocaleTimeString('de-DE',{hour:'2-digit',minute:'2-digit'}),col:C.violet},...a]);
-      const companyId=compResult.id;
-      findContact(name,city,jobText,compResult._refnr||null,website).then(async contact=>{
-        if(!contact)return;
-        // If find-contact found a website, update company with it
-        if(contact.website && !website){
-          try{ await fetch('/api/vincere/add-company',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({id:companyId,website:contact.website})}); }catch(e){}
+
+      // Step 2: Find contact (await so we can show result)
+      const companyId = compResult.id;
+      const contact = await findContact(name, city, jobText, refnr, website);
+
+      if(contact && (contact.firstName || contact.email)){
+        // Step 3: Add contact
+        const cr = await addContact(companyId, contact);
+        if(cr && cr.ok){
+          const info = [contact.firstName, contact.lastName].filter(Boolean).join(' ')
+            + (contact.email?' ('+contact.email+')':'')
+            + (contact.phone?' · '+contact.phone:'');
+          const jobs = contact.jobs&&contact.jobs.length?' · '+contact.jobs.slice(0,2).join(', '):'';
+          setActs(a=>[{id:Date.now(),text:'👤 '+info+jobs,time:new Date().toLocaleTimeString('de-DE',{hour:'2-digit',minute:'2-digit'}),col:C.green},...a]);
+        } else {
+          setActs(a=>[{id:Date.now(),text:'⚠ Kontakt konnte nicht angelegt werden',time:new Date().toLocaleTimeString('de-DE',{hour:'2-digit',minute:'2-digit'}),col:C.amber},...a]);
         }
-        const cr=await addContact(companyId,contact);
-        if(cr&&cr.ok){
-          const info=contact.firstName+' '+contact.lastName+(contact.email?' ('+contact.email+')':'');
-          const jobInfo=contact.jobs&&contact.jobs.length?' · Jobs: '+contact.jobs.slice(0,2).join(', '):'';
-          setActs(a=>[{id:Date.now(),text:'👤 '+info+jobInfo,time:new Date().toLocaleTimeString('de-DE',{hour:'2-digit',minute:'2-digit'}),col:C.green},...a]);
-        }
-      });
+      } else {
+        setActs(a=>[{id:Date.now(),text:'ℹ Kein Kontakt gefunden für '+name,time:new Date().toLocaleTimeString('de-DE',{hour:'2-digit',minute:'2-digit'}),col:C.amber},...a]);
+      }
       return true;
     }catch(e){
       setActs(a=>[{id:Date.now(),text:'⚠ Fehler: '+e.message,time:new Date().toLocaleTimeString('de-DE',{hour:'2-digit',minute:'2-digit'}),col:C.red},...a]);
