@@ -15,41 +15,28 @@ export default async function handler(req, res) {
   const headers = { 'id-token': token, 'x-api-key': apiKey };
   if (appId) headers['app-id'] = appId;
 
-  const start = parseInt(req.query.start || '0', 10);
-  const rows = 500;
-
-  // Fetch ALL available fields to understand the data structure
-  const url = 'https://' + tenant + '.vincere.io/api/v2/company/search/fl=id,name,status,company_type,ownership_type,client_source,type;sort=name asc?keyword=&start=' + start + '&rows=' + rows;
-
   try {
-    const r = await fetch(url, { headers });
-    if (!r.ok) return res.status(r.status).json({ error: await r.text() });
-    const d = await r.json();
-    const items = d.result?.items || [];
-    const total = d.result?.total || 0;
+    // Load ALL companies page by page (500 per request)
+    const allNames = [];
+    let start = 0;
+    let total = null;
 
-    const companies = items.map(c => ({
-      name: c.name,
-      status: c.status,
-      company_type: c.company_type,
-      ownership_type: c.ownership_type,
-      type: c.type,
-    })).filter(c => c.name);
+    while (true) {
+      const url = 'https://' + tenant + '.vincere.io/api/v2/company/search/fl=id,name;sort=name asc?keyword=&start=' + start + '&rows=500';
+      const r = await fetch(url, { headers });
+      if (!r.ok) break;
+      const d = await r.json();
+      const items = d.result?.items || [];
+      if (total === null) total = d.result?.total || 0;
+      items.forEach(c => { if (c.name) allNames.push(c.name); });
+      start += items.length;
+      if (items.length < 500 || start >= total) break;
+      // Safety: max 20 pages (10000 companies)
+      if (start >= 10000) break;
+    }
 
-    const statuses = [...new Set(items.map(c => c.status).filter(s => s !== undefined && s !== null))];
-    const types = [...new Set(items.map(c => c.company_type).filter(t => t !== undefined && t !== null))];
-
-    return res.status(200).json({
-      companies,
-      names: companies.map(c => c.name),
-      statuses,
-      types,
-      total,
-      start,
-      hasMore: start + rows < total,
-      nextStart: start + rows
-    });
-  } catch(e) {
+    return res.status(200).json({ names: allNames, total: allNames.length, connected: true });
+  } catch (e) {
     return res.status(500).json({ error: e.message });
   }
 }
