@@ -217,7 +217,13 @@ function SearchView({names,onAdd,addingId,setSH,connected}) {
     if(!t.length)return; setLoading(true); setError('');
     try {
       const d=await searchBA({terms:t,wo:wo||'',umkreis:wo?umkreis:0,angebotsart,page:pg,size:50,zeitarbeit});
-      const parsed=(d.stellenangebote||[]).map(j=>parseJob(j));
+      const PDL = ['FERCHAU','Hays','Adecco','Randstad','Manpower','Persona Service','Tempton',
+        'Orizon','Dekra Arbeit','Brunel','Trenkwalder','DIS AG','Amadeus Fire','Piening',
+        'avitea','Tintschl','Gulp','Solua','expertum','Headmatch','Hofmann Personal',
+        'top itservices','Bankpower','Personalwerk','gps gruppe','ieg','zeitarbeit',
+        'Zeitarbeit','Arbeitnehmerüberlassung','Personalleasing','Personaldienstleist'];
+      const isPDL = name => PDL.some(p => name?.toLowerCase().includes(p.toLowerCase()));
+      const parsed=(d.stellenangebote||[]).map(j=>parseJob(j)).filter(j=>!isPDL(j.company));
       setJobs(prev=>append?[...prev,...parsed]:parsed);
       setTotal(d.maxErgebnisse||0); setPage(pg); setSearched(true);
       setSH(h=>[{id:Date.now(),terms:t,hits:d.maxErgebnisse||parsed.length,wo:wo||'',time:new Date().toLocaleTimeString('de-DE',{hour:'2-digit',minute:'2-digit'})},...h.slice(0,19)]);
