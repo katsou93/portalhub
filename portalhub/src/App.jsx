@@ -55,14 +55,47 @@ async function addToVincere(name, city, postcode, website) {
   } catch(e) { return {ok:false, error:e.message}; }
 }
 
-async function findContact(name, city, jobText) {
+async function fetchBADetail(refnr) {
+  if(!refnr) return null;
   try {
+    const r = await fetch('/api/jobs?refnr='+encodeURIComponent(refnr));
+    if(!r.ok) return null;
+    return await r.json();
+  } catch(e) { return null; }
+}
+
+async function findContact(name, city, jobText, refnr, website) {
+  try {
+    // Priority 1: BA detail API has structured contact data
+    const baDetail = await fetchBADetail(refnr);
+    if(baDetail?.kontaktAngaben) {
+      const k = baDetail.kontaktAngaben;
+      const fullName = k.ansprechpartner || k.name || '';
+      const parts = fullName.trim().split(/\s+/);
+      if(parts.length >= 2) {
+        return {
+          firstName: parts[0],
+          lastName: parts.slice(1).join(' '),
+          email: k.email || k.emailAdresse || null,
+          phone: k.telefonnummer || k.telefon || null,
+          position: k.berufsbezeichnung || 'Ansprechpartner/in',
+          website: baDetail.arbeitgeberHomepage || website || null,
+          jobs: [],
+          source: 'bundesagentur',
+        };
+      }
+    }
+    // Fallback: website scraping
     const params = new URLSearchParams({name, city:city||''});
     if(jobText) params.set('jobText', encodeURIComponent(jobText));
+    if(website) params.set('website', website);
+    if(baDetail?.arbeitgeberHomepage) params.set('website', baDetail.arbeitgeberHomepage);
     const r = await fetch('/api/vincere/find-contact?'+params);
     if(!r.ok) return null;
     const d = await r.json();
-    return (d.firstName && d.lastName) ? d : null;
+    // Add homepage from BA if scraping didn't find one
+    if(baDetail?.arbeitgeberHomepage && !d.website) d.website = baDetail.arbeitgeberHomepage;
+    return (d.firstName && d.lastName) || d.email ? d : null;
   } catch(e) { return null; }
 }
 
@@ -102,14 +135,21 @@ function nameMatch(a,b) {
   return shorter.filter(w=>longer.some(lw=>lw.includes(w)||w.includes(lw))).length/shorter.length>=0.6;
 }
 function parseJob(j) {
-  // Extract contact text from job description fields
   const jobText = [j.arbeitgeberdarstellung, j.stellenbeschreibung, j.taetigkeit]
     .filter(Boolean).join(' ').substring(0, 500);
-  return { id:j.hashId||j.refnr||Math.random().toString(36), title:j.titel||'—',
-    company:j.arbeitgeber||'—', city:j.arbeitsort?.ort||'—',
-    postcode:j.arbeitsort?.plz||'', country:'DE',
-    jobText: jobText || '',
-    posted:fmt(j.aktuelleVeroeffentlichungsdatum), type:mapA(j.angebotsart), refnr:j.refnr };
+  return {
+    id: j.hashId||j.refnr||Math.random().toString(36),
+    title: j.titel||'—',
+    company: j.arbeitgeber||'—',
+    city: j.arbeitsort?.ort||'—',
+    postcode: j.arbeitsort?.plz||'',
+    street: j.arbeitsort?.strasse||'',
+    country: 'DE',
+    jobText: jobText||'',
+    refnr: j.refnr||null,
+    posted: fmt(j.aktuelleVeroeffentlichungsdatum),
+    type: mapA(j.angebotsart),
+  };
 }
 
 function Spin() { return <span style={{display:'inline-block',width:13,height:13,border:'2px solid rgba(255,255,255,0.18)',borderTopColor:'#fff',borderRadius:'50%',animation:'spin .7s linear infinite'}} />; }
@@ -148,7 +188,7 @@ function JobCard({job,names,onAdd,addingId}) {
       <div style={{display:'flex',alignItems:'center',gap:7,flexShrink:0}}>
         <span style={{fontSize:11,color:C.faint}}>{job.posted}</span>
         <span style={{fontSize:10.5,background:C.bg3,border:'1px solid '+C.border,color:C.faint,padding:'2px 7px',borderRadius:5}}>{job.type}</span>
-        <VBadge company={job.company} names={names} onAdd={()=>onAdd(job.company, job.city, job.postcode, null, job.jobText)} adding={addingId===job.company} />
+        <VBadge company={job.company} names={names} onAdd={()=>onAdd(job.company, job.city, job.postcode, null, job.jobText, job.refnr)} adding={addingId===job.company} />
       </div>
     </div>
   );
@@ -191,7 +231,7 @@ function SearchView({names,onAdd,addingId,setSH,connected}) {
     const newJobs=jobs.filter(j=>j.company&&j.company!=='—'&&!names.some(n=>nameMatch(n,j.company)));
     const seen=new Set(); const unique=newJobs.filter(j=>{if(seen.has(j.company))return false;seen.add(j.company);return true;});
     if(!unique.length)return; setBulkAdding(true); setBulkDone(0);
-    for(const j of unique){await onAdd(j.company,j.city,j.postcode,null,j.jobText);setBulkDone(d=>d+1);}
+    for(const j of unique){await onAdd(j.company,j.city,j.postcode,null,j.jobText,j.refnr);setBulkDone(d=>d+1);}
     setBulkAdding(false);
   };
 
@@ -559,10 +599,11 @@ export default function App() {
     });
   },[]);
 
-  const handleAdd=async(name, city, postcode, website, jobText)=>{
+  const handleAdd=async(name, city, postcode, website, jobText, refnr)=>{
     setAddingId(name);
     try{
       const compResult = await addToVincere(name, city, postcode, website);
+      if(compResult) compResult._refnr = refnr;
       if(!compResult || !compResult.ok){
         const err=compResult?.vincereError?JSON.stringify(compResult.vincereError).substring(0,60):(compResult?.error||'Fehler');
         setActs(a=>[{id:Date.now(),text:'⚠ '+name+': '+err,time:new Date().toLocaleTimeString('de-DE',{hour:'2-digit',minute:'2-digit'}),col:C.red},...a]);
@@ -572,7 +613,7 @@ export default function App() {
       const loc=[postcode,city].filter(Boolean).join(' ');
       setActs(a=>[{id:Date.now(),text:'✓ '+name+(loc?' · '+loc:''),time:new Date().toLocaleTimeString('de-DE',{hour:'2-digit',minute:'2-digit'}),col:C.violet},...a]);
       const companyId=compResult.id;
-      findContact(name,city,jobText).then(async contact=>{
+      findContact(name,city,jobText,compResult._refnr||null,website).then(async contact=>{
         if(!contact)return;
         // If find-contact found a website, update company with it
         if(contact.website && !website){
