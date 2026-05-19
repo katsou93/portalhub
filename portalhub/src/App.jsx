@@ -608,78 +608,66 @@ export default function App() {
   const handleAdd=async(name, city, postcode, website, jobText, refnr)=>{
     setAddingId(name);
     try{
-      // Step 1: Create company + location
+      // Step 1: Create company - this MUST work first
       const compResult = await addToVincere(name, city, postcode, website);
       if(!compResult||!compResult.ok){
         const err=compResult?.vincereError?JSON.stringify(compResult.vincereError).substring(0,60):(compResult?.error||'Fehler');
         setActs(a=>[{id:Date.now(),text:'⚠ '+name+': '+err,time:new Date().toLocaleTimeString('de-DE',{hour:'2-digit',minute:'2-digit'}),col:C.red},...a]);
         return false;
       }
+      // Company added - show immediately
       setVNames(p=>[...p,name]);
       const loc=[postcode,city].filter(Boolean).join(' ');
       setActs(a=>[{id:Date.now(),text:'✓ '+name+(loc?' · '+loc:''),time:new Date().toLocaleTimeString('de-DE',{hour:'2-digit',minute:'2-digit'}),col:C.violet},...a]);
+
+      // Step 2+3: Find and add contact in background (don't await - don't block UI)
       const companyId = compResult.id;
-
-      // Step 2: Try BA detail API first (fastest, most reliable)
-      let contact = null;
-      const baDetail = await fetchBADetail(refnr);
-      if(baDetail?.kontaktAngaben) {
-        const k = baDetail.kontaktAngaben;
-        const fullName = (k.ansprechpartner||k.name||'').trim();
-        const parts = fullName.split(/\s+/);
-        if(parts.length >= 2) {
-          contact = {
-            firstName: parts[0],
-            lastName: parts.slice(1).join(' '),
-            email: k.email||k.emailAdresse||null,
-            phone: k.telefonnummer||k.telefon||null,
-            position: k.berufsbezeichnung||'Ansprechpartner/in',
-            website: baDetail.arbeitgeberHomepage||null,
-            source: 'bundesagentur',
-          };
-        }
-      }
-
-      // Step 3: Fallback to website scraping if BA had no contact
-      if(!contact) {
-        const siteUrl = (baDetail?.arbeitgeberHomepage)||website||null;
-        const params = new URLSearchParams({name, city:city||''});
-        if(siteUrl) params.set('website', siteUrl);
-        try {
-          const r = await fetch('/api/vincere/find-contact?'+params);
-          if(r.ok) {
-            const d = await r.json();
-            if(d.firstName||d.email) contact = d;
+      (async()=>{
+        try{
+          // Try BA detail first (fast, structured data)
+          let contact = null;
+          if(refnr){
+            const baDetail = await fetchBADetail(refnr);
+            if(baDetail?.kontaktAngaben){
+              const k = baDetail.kontaktAngaben;
+              const fullName = (k.ansprechpartner||k.name||'').trim();
+              const parts = fullName.split(/s+/);
+              if(parts.length >= 2){
+                contact = {
+                  firstName: parts[0],
+                  lastName: parts.slice(1).join(' '),
+                  email: k.email||k.emailAdresse||null,
+                  phone: k.telefonnummer||k.telefon||null,
+                  position: k.berufsbezeichnung||'Ansprechpartner/in',
+                  website: baDetail.arbeitgeberHomepage||null,
+                  source: 'bundesagentur',
+                };
+              }
+              // Update company website if found
+              if(baDetail.arbeitgeberHomepage && !website && companyId){
+                await addToVincere(name, city, postcode, baDetail.arbeitgeberHomepage).catch(()=>{});
+              }
+            }
           }
-        } catch(e) {}
-      }
+          // Fallback: scrape website
+          if(!contact){
+            const params = new URLSearchParams({name, city:city||''});
+            if(website) params.set('website', website);
+            const r = await fetch('/api/vincere/find-contact?'+params);
+            if(r.ok){ const d=await r.json(); if(d.firstName||d.email) contact=d; }
+          }
+          // Add contact to Vincere
+          if(contact && contact.firstName && contact.lastName){
+            const cr = await addContact(companyId, contact);
+            if(cr&&cr.ok){
+              const info=[contact.firstName,contact.lastName].filter(Boolean).join(' ')
+                +(contact.email?' ('+contact.email+')':'');
+              setActs(a=>[{id:Date.now(),text:'👤 '+info,time:new Date().toLocaleTimeString('de-DE',{hour:'2-digit',minute:'2-digit'}),col:C.green},...a]);
+            }
+          }
+        }catch(e){}
+      })();
 
-      // Step 4: Update company website if found
-      const foundWebsite = contact?.website || baDetail?.arbeitgeberHomepage || null;
-      if(foundWebsite && !website) {
-        try {
-          await fetch('/api/vincere/add-company', {
-            method:'PUT', headers:{'Content-Type':'application/json'},
-            body:JSON.stringify({id:companyId, website:foundWebsite})
-          });
-        } catch(e) {}
-      }
-
-      // Step 5: Add contact to Vincere
-      if(contact && contact.firstName && contact.lastName) {
-        const cr = await addContact(companyId, contact);
-        if(cr&&cr.ok){
-          const info=[contact.firstName,contact.lastName].filter(Boolean).join(' ')
-            +(contact.email?' ('+contact.email+')':'')
-            +(contact.phone?' · '+contact.phone:'');
-          setActs(a=>[{id:Date.now(),text:'👤 '+info+' ('+contact.source+')',time:new Date().toLocaleTimeString('de-DE',{hour:'2-digit',minute:'2-digit'}),col:C.green},...a]);
-        }
-      } else if(contact?.email) {
-        // At least show email even without name
-        setActs(a=>[{id:Date.now(),text:'📧 '+contact.email,time:new Date().toLocaleTimeString('de-DE',{hour:'2-digit',minute:'2-digit'}),col:C.green},...a]);
-      } else {
-        setActs(a=>[{id:Date.now(),text:'ℹ Kein Kontakt gefunden',time:new Date().toLocaleTimeString('de-DE',{hour:'2-digit',minute:'2-digit'}),col:C.amber},...a]);
-      }
       return true;
     }catch(e){
       setActs(a=>[{id:Date.now(),text:'⚠ '+e.message,time:new Date().toLocaleTimeString('de-DE',{hour:'2-digit',minute:'2-digit'}),col:C.red},...a]);
