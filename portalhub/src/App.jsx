@@ -631,7 +631,7 @@ export default function App() {
             if(baDetail?.kontaktAngaben){
               const k = baDetail.kontaktAngaben;
               const fullName = (k.ansprechpartner||k.name||'').trim();
-              const parts = fullName.split(/s+/);
+              const parts = fullName.split(/\s+/);
               if(parts.length >= 2){
                 contact = {
                   firstName: parts[0],

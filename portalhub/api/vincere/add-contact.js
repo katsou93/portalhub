@@ -14,7 +14,6 @@ export default async function handler(req, res) {
   const apiKey = process.env.VINCERE_API_KEY;
   const appId  = process.env.VINCERE_APP_ID;
   const headers = {'Content-Type':'application/json','id-token':token,'x-api-key':appId||apiKey};
-  if(appId) headers['app-id']=appId;
 
   const { firstName, lastName, email, phone, position, companyId } = req.body||{};
   if(!firstName||!lastName||!companyId) return res.status(400).json({error:'firstName, lastName, companyId required'});

@@ -14,15 +14,18 @@ export default async function handler(req, res) {
   const apiKey = process.env.VINCERE_API_KEY;
   const appId  = process.env.VINCERE_APP_ID;
   const headers = {'Content-Type':'application/json','id-token':token,'x-api-key':appId||apiKey};
-  if(appId) headers['app-id']=appId;
 
   const { name, city, postcode, website } = req.body||{};
   if(!name) return res.status(400).json({error:'name required'});
 
   const today = new Date().toISOString().split('T')[0]+'T00:00:00.000Z';
 
-  // Build company payload
-  const companyPayload = { company_name: name, registration_date: today };
+  // Build company payload - registration_date required by Vincere
+  const companyPayload = { 
+    company_name: name, 
+    registration_date: today,
+    stage: 'COMPANY',
+  };
   if(city||postcode) companyPayload.head_quarter = [postcode,city].filter(Boolean).join(' ');
   if(website) companyPayload.website = website;
 
@@ -31,7 +34,8 @@ export default async function handler(req, res) {
       method:'POST', headers, body:JSON.stringify(companyPayload)
     });
     const compData = await compR.json();
-    if(!compR.ok) return res.status(200).json({ok:false,vincereError:compData});
+    console.log('Vincere company POST:', compR.status, JSON.stringify(compData).substring(0, 200));
+    if(!compR.ok) return res.status(200).json({ok:false, vincereError:compData, status:compR.status});
     const companyId = compData.id;
 
     // Add Location (Google Maps field)
