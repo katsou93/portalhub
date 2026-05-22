@@ -21,7 +21,7 @@ export default async function handler(req, res) {
   const apiKey = process.env.VINCERE_API_KEY;
   const appId  = process.env.VINCERE_APP_ID;
   const { action } = req.query;
-  function vh(){ const h={'id-token':token,'x-api-key':apiKey}; if(appId)h['app-id']=appId; return h; }
+  function vh(){ return {'id-token':token,'x-api-key':appId||apiKey}; }
 
   // READ CACHE
   if(!action){

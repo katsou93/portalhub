@@ -13,7 +13,7 @@ export default async function handler(req, res) {
   const tenant = process.env.VINCERE_TENANT;
   const apiKey = process.env.VINCERE_API_KEY;
   const appId  = process.env.VINCERE_APP_ID;
-  const headers = {'Content-Type':'application/json','id-token':token,'x-api-key':apiKey};
+  const headers = {'Content-Type':'application/json','id-token':token,'x-api-key':appId||apiKey};
   if(appId) headers['app-id']=appId;
 
   const { name, city, postcode, website } = req.body||{};
