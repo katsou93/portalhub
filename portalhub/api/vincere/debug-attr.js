@@ -8,7 +8,7 @@ export default async function handler(req, res) {
   const tenant = process.env.VINCERE_TENANT;
   const apiKey = process.env.VINCERE_API_KEY;
   const appId = process.env.VINCERE_APP_ID;
-  const h = {'Content-Type':'application/json','id-token':token,'x-api-key':appId||apiKey};
+  const h = {'Content-Type':'application/json','id-token':token,'x-api-key':apiKey};
   const results = {};
 
   // Test various attribute endpoints

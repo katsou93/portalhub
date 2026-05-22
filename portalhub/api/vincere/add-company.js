@@ -13,7 +13,7 @@ export default async function handler(req, res) {
   const tenant = process.env.VINCERE_TENANT;
   const apiKey = process.env.VINCERE_API_KEY;
   const appId  = process.env.VINCERE_APP_ID;
-  const headers = {'Content-Type':'application/json','id-token':token,'x-api-key':appId||apiKey};
+  const headers = {'Content-Type':'application/json','id-token':token,'x-api-key':apiKey};
 
   const { name, city, postcode, website } = req.body||{};
   if(!name) return res.status(400).json({error:'name required'});

@@ -12,7 +12,7 @@ export default async function handler(req, res) {
   const tenant = process.env.VINCERE_TENANT;
   const apiKey  = process.env.VINCERE_API_KEY;
   const appId   = process.env.VINCERE_APP_ID;
-  const headers = { 'id-token': token, 'x-api-key': appId || apiKey };
+  const headers = { 'id-token': token, 'x-api-key': apiKey };
   if (appId) headers['app-id'] = appId;
 
   try {
