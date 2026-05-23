@@ -37,11 +37,23 @@ export default async function handler(req, res) {
 
   // Name validation - must look like a real German/European name
   const BLACKLIST = new Set([
+    // Navigation / generic words
     'Downloads','Karriere','Jobs','Kontakt','Impressum','Datenschutz','Login',
     'Home','News','Service','Produkte','Ausbildung','Bewerbung','Team','Info',
+    'Unternehmen','Leistungen','Referenzen','Partner','Blog','Presse',
+    // Legal / address words
     'Amtsgericht','Handelsregister','Deutschland','Germany','Bayern','Berlin',
     'Hamburg','München','Frankfurt','Köln','Stuttgart','Hannover','Düsseldorf',
+    'Krefeld','Dortmund','Dresden','Leipzig','Bremen','Essen','Duisburg',
+    // Company types
     'GmbH','AG','KG','SE','OHG','UG','Dienstleistungen','Management',
+    // Department/function names that appear near contacts
+    'Vertrieb','Marketing','Personal','Recruiting','Einkauf','Buchhaltung',
+    'Controlling','Produktion','Technik','Entwicklung','Forschung','Logistik',
+    'Verwaltung','Sekretariat','Empfang','Assistenz','Beratung','Support',
+    'Qualität','Sicherheit','Compliance','Recht','Finanzen','Rechnungswesen',
+    'International','Regional','National','Global','Digital','Online',
+    'Herr','Frau','Dr','Prof','Dipl','Ing','Hr','Fr',
   ]);
 
   function isRealName(first, last) {

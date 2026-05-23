@@ -146,6 +146,7 @@ function parseJob(j) {
     country: 'DE',
     jobText: jobText||'',
     refnr: j.refnr||null,
+    website: j.arbeitgeberHomepage||null,
     posted: fmt(j.aktuelleVeroeffentlichungsdatum),
     type: mapA(j.angebotsart),
   };
@@ -187,7 +188,7 @@ function JobCard({job,names,onAdd,addingId}) {
       <div style={{display:'flex',alignItems:'center',gap:7,flexShrink:0}}>
         <span style={{fontSize:11,color:C.faint}}>{job.posted}</span>
         <span style={{fontSize:10.5,background:C.bg3,border:'1px solid '+C.border,color:C.faint,padding:'2px 7px',borderRadius:5}}>{job.type}</span>
-        <VBadge company={job.company} names={names} onAdd={()=>onAdd(job.company, job.city, job.postcode, null, job.jobText, job.refnr)} adding={addingId===job.company} />
+        <VBadge company={job.company} names={names} onAdd={()=>onAdd(job.company, job.city, job.postcode, job.website, job.jobText, job.refnr)} adding={addingId===job.company} />
       </div>
     </div>
   );
@@ -236,7 +237,7 @@ function SearchView({names,onAdd,addingId,setSH,connected}) {
     const newJobs=jobs.filter(j=>j.company&&j.company!=='—'&&!names.some(n=>nameMatch(n,j.company)));
     const seen=new Set(); const unique=newJobs.filter(j=>{if(seen.has(j.company))return false;seen.add(j.company);return true;});
     if(!unique.length)return; setBulkAdding(true); setBulkDone(0);
-    for(const j of unique){await onAdd(j.company,j.city,j.postcode,null,j.jobText,j.refnr);setBulkDone(d=>d+1);}
+    for(const j of unique){await onAdd(j.company,j.city,j.postcode,j.website,j.jobText,j.refnr);setBulkDone(d=>d+1);}
     setBulkAdding(false);
   };
 
