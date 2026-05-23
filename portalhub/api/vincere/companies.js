@@ -1,9 +1,26 @@
-import { Redis } from '@upstash/redis';
-
 const KV_KEY = 'portalhub:added_companies_v1';
 
-function getRedis() {
-  return new Redis({ url: process.env.KV_REST_API_URL, token: process.env.KV_REST_API_TOKEN });
+async function kvGet(key) {
+  const url = process.env.KV_REST_API_URL;
+  const token = process.env.KV_REST_API_TOKEN;
+  if (!url || !token) return null;
+  const r = await fetch(`${url}/get/${encodeURIComponent(key)}`, {
+    headers: { Authorization: `Bearer ${token}` }
+  });
+  if (!r.ok) return null;
+  const d = await r.json();
+  return d.result ? JSON.parse(d.result) : null;
+}
+
+async function kvSet(key, value) {
+  const url = process.env.KV_REST_API_URL;
+  const token = process.env.KV_REST_API_TOKEN;
+  if (!url || !token) return;
+  await fetch(`${url}/set/${encodeURIComponent(key)}`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify(JSON.stringify(value))
+  });
 }
 
 function parseCookies(req) {
@@ -52,11 +69,10 @@ export default async function handler(req, res) {
     const { name } = req.body || {};
     if (!name) return res.status(400).json({ error: 'name required' });
     try {
-      const redis = getRedis();
-      const existing = await redis.get(KV_KEY) || [];
+      const existing = await kvGet(KV_KEY) || [];
       if (!existing.includes(name)) {
         existing.unshift(name);
-        await redis.set(KV_KEY, existing);
+        await kvSet(KV_KEY, existing);
       }
       return res.status(200).json({ ok: true, total: existing.length });
     } catch (e) {
@@ -66,8 +82,7 @@ export default async function handler(req, res) {
 
   // GET: return our KV list + Vincere's search index (first page)
   try {
-    const redis = getRedis();
-    const kvNames = await redis.get(KV_KEY) || [];
+    const kvNames = await kvGet(KV_KEY) || [];
 
     // Also get first 100 from Vincere search (for existing pre-portalhub companies)
     const vincereNames = [];

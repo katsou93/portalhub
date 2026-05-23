@@ -94,13 +94,23 @@ export default async function handler(req, res) {
 
     // Save company name to KV for fast matching on next search
     try {
-      const { Redis } = await import('@upstash/redis');
-      const redis = new Redis({ url: process.env.KV_REST_API_URL, token: process.env.KV_REST_API_TOKEN });
       const KV_KEY = 'portalhub:added_companies_v1';
-      const existing = await redis.get(KV_KEY) || [];
-      if (!existing.includes(compData.company_name)) {
-        existing.unshift(compData.company_name);
-        await redis.set(KV_KEY, existing);
+      const kvUrl = process.env.KV_REST_API_URL;
+      const kvToken = process.env.KV_REST_API_TOKEN;
+      if (kvUrl && kvToken) {
+        const getR = await fetch(`${kvUrl}/get/${encodeURIComponent(KV_KEY)}`, {
+          headers: { Authorization: `Bearer ${kvToken}` }
+        });
+        const getData = await getR.json();
+        const existing = getData.result ? JSON.parse(getData.result) : [];
+        if (!existing.includes(compData.company_name)) {
+          existing.unshift(compData.company_name);
+          await fetch(`${kvUrl}/set/${encodeURIComponent(KV_KEY)}`, {
+            method: 'POST',
+            headers: { Authorization: `Bearer ${kvToken}`, 'Content-Type': 'application/json' },
+            body: JSON.stringify(JSON.stringify(existing))
+          });
+        }
       }
     } catch (e) { console.log('KV save failed:', e.message); }
 
