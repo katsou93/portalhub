@@ -1,63 +1,110 @@
 export default async function handler(req, res) {
-  res.setHeader('Access-Control-Allow-Origin','*');
-  if(req.method==='OPTIONS') return res.status(200).end();
-  if(req.method!=='POST') return res.status(405).end();
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  if (req.method === 'OPTIONS') return res.status(200).end();
+  if (req.method !== 'POST') return res.status(405).end();
 
-  const cookieStr = req.headers.cookie||'';
-  const cookies = Object.fromEntries(cookieStr.split(';').map(c=>{
-    const[k,...v]=c.trim().split('=');return[k,v.join('=')];
-  }));
+  const cookieStr = req.headers.cookie || '';
+  const cookies = Object.fromEntries(
+    cookieStr.split(';').map(c => {
+      const [k, ...v] = c.trim().split('=');
+      return [k.trim(), v.join('=')];
+    }).filter(([k]) => k)
+  );
+
   let token = cookies.vincere_token;
-  if(!token) return res.status(401).json({error:'not_authenticated'});
+  if (!token) return res.status(401).json({ error: 'not_authenticated' });
 
-  const tenant = process.env.VINCERE_TENANT;
-  const apiKey = process.env.VINCERE_API_KEY;
-  const appId  = process.env.VINCERE_APP_ID;
+  const tenant   = process.env.VINCERE_TENANT;
+  const apiKey   = process.env.VINCERE_API_KEY;
   const clientId = process.env.VINCERE_CLIENT_ID;
   const refreshTok = cookies.vincere_refresh_token;
+
+  // Auto-refresh token if expired
   if (refreshTok && clientId) {
-    const test = await fetch('https://'+tenant+'.vincere.io/api/v2/company/search/fl=id?rows=1',{headers:{'id-token':token,'x-api-key':apiKey}});
-    if (!test.ok && test.status === 401) {
-      const r = await fetch('https://id.vincere.io/oauth2/token',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:new URLSearchParams({grant_type:'refresh_token',client_id:clientId,refresh_token:refreshTok})});
-      if (r.ok){const d=await r.json();if(d.id_token||d.access_token){token=d.id_token||d.access_token;res.setHeader('Set-Cookie',['vincere_token='+token+'; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age='+(d.expires_in||3600)]);}}
+    const test = await fetch(`https://${tenant}.vincere.io/api/v2/company/search/fl=id?rows=1`, {
+      headers: { 'id-token': token, 'x-api-key': apiKey }
+    }).catch(() => null);
+    if (test && test.status === 401) {
+      const r = await fetch('https://id.vincere.io/oauth2/token', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: new URLSearchParams({ grant_type: 'refresh_token', client_id: clientId, refresh_token: refreshTok })
+      }).catch(() => null);
+      if (r && r.ok) {
+        const d = await r.json();
+        if (d.id_token || d.access_token) {
+          token = d.id_token || d.access_token;
+          res.setHeader('Set-Cookie', [`vincere_token=${token}; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=${d.expires_in || 3600}`]);
+        }
+      }
     }
   }
-  const headers = {'Content-Type':'application/json','id-token':token,'x-api-key':apiKey};
 
-  const { firstName, lastName, email, phone, position, companyId } = req.body||{};
-  if(!firstName||!lastName||!companyId) return res.status(400).json({error:'firstName, lastName, companyId required'});
+  const h = { 'Content-Type': 'application/json', 'id-token': token, 'x-api-key': apiKey };
+  const { firstName, lastName, email, phone, position, companyId, locationId } = req.body || {};
 
-  const today = new Date().toISOString().split('T')[0]+'T00:00:00.000Z';
+  if (!companyId) return res.status(400).json({ error: 'companyId required' });
 
+  const today = new Date().toISOString().split('T')[0] + 'T00:00:00.000Z';
+
+  // Build contact payload - name optional (email-only contacts allowed)
   const payload = {
-    first_name: firstName,
-    last_name: lastName,
     registration_date: today,
     company_id: parseInt(companyId),
   };
-  if(email) payload.email = email;
-  if(position) payload.job_title = position;
+
+  if (firstName) payload.first_name = firstName;
+  if (lastName)  payload.last_name  = lastName;
+  if (email)     payload.email      = email;
+  if (position)  payload.job_title  = position;
+
+  // If no name but only email - use email prefix as placeholder
+  if (!firstName && !lastName && email) {
+    const prefix = email.split('@')[0];
+    payload.first_name = prefix;
+    payload.last_name  = '-';
+  }
+
+  // If nothing useful to add, skip
+  if (!payload.first_name && !payload.email) {
+    return res.status(200).json({ ok: false, error: 'No contact data to add' });
+  }
 
   try {
-    const r = await fetch('https://'+tenant+'.vincere.io/api/v2/contact',{
-      method:'POST', headers, body:JSON.stringify(payload)
+    const r = await fetch(`https://${tenant}.vincere.io/api/v2/contact`, {
+      method: 'POST', headers: h,
+      body: JSON.stringify(payload),
     });
     const data = await r.json();
-    if(!r.ok) return res.status(200).json({ok:false, vincereError:data});
+    console.log('Contact POST:', r.status, JSON.stringify(data).substring(0, 200));
+
+    if (!r.ok) return res.status(200).json({ ok: false, vincereError: data });
 
     const contactId = data.id;
 
-    // Add phone via PUT (separate call, non-critical)
-    if(phone && contactId) {
-      try {
-        await fetch('https://'+tenant+'.vincere.io/api/v2/contact/'+contactId,{
-          method:'PUT', headers, body:JSON.stringify({phone})
-        });
-      } catch(e) {}
+    // Add phone separately if provided (some Vincere versions need PUT)
+    if (phone && contactId) {
+      await fetch(`https://${tenant}.vincere.io/api/v2/contact/${contactId}`, {
+        method: 'PUT', headers: h,
+        body: JSON.stringify({ phone }),
+      }).catch(() => {});
     }
 
-    return res.status(200).json({ok:true, id:contactId, name:firstName+' '+lastName});
-  } catch(e) {
-    return res.status(500).json({ok:false, error:e.message});
+    // Link contact to company location if locationId provided
+    if (locationId && contactId) {
+      await fetch(`https://${tenant}.vincere.io/api/v2/contact/${contactId}/location`, {
+        method: 'POST', headers: h,
+        body: JSON.stringify({ location_id: parseInt(locationId) }),
+      }).catch(() => {});
+    }
+
+    return res.status(200).json({
+      ok: true,
+      id: contactId,
+      name: [firstName, lastName].filter(Boolean).join(' ') || email,
+    });
+  } catch (e) {
+    console.error('add-contact error:', e.message);
+    return res.status(500).json({ ok: false, error: e.message });
   }
 }

@@ -99,15 +99,14 @@ async function findContact(name, city, jobText, refnr, website) {
   } catch(e) { return null; }
 }
 
-async function addContact(companyId, contact) {
+async function addContact(companyId, contact, locationId) {
   try {
     const r = await fetch('/api/vincere/add-contact', {
       method:'POST', headers:{'Content-Type':'application/json'},
       body:JSON.stringify({
-        firstName:contact.firstName, lastName:contact.lastName,
+        firstName:contact.firstName||null, lastName:contact.lastName||null,
         email:contact.email||null, phone:contact.phone||null,
-        position:contact.position||null, companyId,
-        jobs:contact.jobs||[]
+        position:contact.position||null, companyId, locationId:locationId||null,
       })
     });
     if(!r.ok) return null;
@@ -620,12 +619,14 @@ export default function App() {
       const loc=[postcode,city].filter(Boolean).join(' ');
       setActs(a=>[{id:Date.now(),text:'✓ '+name+(loc?' · '+loc:''),time:new Date().toLocaleTimeString('de-DE',{hour:'2-digit',minute:'2-digit'}),col:C.violet},...a]);
 
-      // Step 2+3: Find and add contact in background (don't await - don't block UI)
+      // Steps 2+3: Find & add contact in background
       const companyId = compResult.id;
+      const locationId = compResult.locationId || null;
       (async()=>{
         try{
-          // Try BA detail first (fast, structured data)
           let contact = null;
+
+          // Priority 1: BA job detail (structured contact data)
           if(refnr){
             const baDetail = await fetchBADetail(refnr);
             if(baDetail?.kontaktAngaben){
@@ -635,37 +636,51 @@ export default function App() {
               if(parts.length >= 2){
                 contact = {
                   firstName: parts[0],
-                  lastName: parts.slice(1).join(' '),
-                  email: k.email||k.emailAdresse||null,
-                  phone: k.telefonnummer||k.telefon||null,
-                  position: k.berufsbezeichnung||'Ansprechpartner/in',
-                  website: baDetail.arbeitgeberHomepage||null,
-                  source: 'bundesagentur',
+                  lastName:  parts.slice(1).join(' '),
+                  email:     k.email||k.emailAdresse||null,
+                  phone:     k.telefonnummer||k.telefon||null,
+                  position:  k.berufsbezeichnung||'Ansprechpartner/in',
+                  source:    'bundesagentur',
                 };
               }
               // Update company website if found
               if(baDetail.arbeitgeberHomepage && !website && companyId){
-                await addToVincere(name, city, postcode, baDetail.arbeitgeberHomepage).catch(()=>{});
+                addToVincere(name, city, postcode, baDetail.arbeitgeberHomepage).catch(()=>{});
               }
+              // Use BA website as fallback for scraping
+              if(!website && baDetail.arbeitgeberHomepage) website = baDetail.arbeitgeberHomepage;
             }
           }
-          // Fallback: scrape website
+
+          // Priority 2+3: Scrape career page, contact page, impressum
           if(!contact){
             const params = new URLSearchParams({name, city:city||''});
             if(website) params.set('website', website);
             const r = await fetch('/api/vincere/find-contact?'+params);
-            if(r.ok){ const d=await r.json(); if(d.firstName||d.email) contact=d; }
-          }
-          // Add contact to Vincere
-          if(contact && contact.firstName && contact.lastName){
-            const cr = await addContact(companyId, contact);
-            if(cr&&cr.ok){
-              const info=[contact.firstName,contact.lastName].filter(Boolean).join(' ')
-                +(contact.email?' ('+contact.email+')':'');
-              setActs(a=>[{id:Date.now(),text:'👤 '+info,time:new Date().toLocaleTimeString('de-DE',{hour:'2-digit',minute:'2-digit'}),col:C.green},...a]);
+            if(r.ok){
+              const d = await r.json();
+              // Accept contact if we have a name OR just an email
+              if(d.firstName || d.email) contact = d;
             }
           }
-        }catch(e){}
+
+          // Add contact to Vincere (name + email, or just email, or nothing)
+          if(contact && (contact.firstName || contact.email)){
+            const cr = await addContact(companyId, contact, locationId);
+            if(cr && cr.ok){
+              const nameStr = [contact.firstName,contact.lastName].filter(Boolean).join(' ');
+              const info = nameStr
+                ? nameStr + (contact.email?' ('+contact.email+')':'')
+                : contact.email || 'Kontakt';
+              const pos = contact.position ? ' · '+contact.position : '';
+              setActs(a=>[{id:Date.now(),text:'👤 '+info+pos,time:new Date().toLocaleTimeString('de-DE',{hour:'2-digit',minute:'2-digit'}),col:C.green},...a]);
+            } else {
+              setActs(a=>[{id:Date.now(),text:'ℹ Kein Kontakt gefunden für '+name,time:new Date().toLocaleTimeString('de-DE',{hour:'2-digit',minute:'2-digit'}),col:C.muted},...a]);
+            }
+          } else {
+            setActs(a=>[{id:Date.now(),text:'ℹ Kein Kontakt gefunden für '+name,time:new Date().toLocaleTimeString('de-DE',{hour:'2-digit',minute:'2-digit'}),col:C.muted},...a]);
+          }
+        }catch(e){ console.error('contact search error:', e); }
       })();
 
       return true;
