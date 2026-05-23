@@ -43,17 +43,17 @@ export default async function handler(req, res) {
     let total = null;
 
     while (true) {
-      const url = `https://${tenant}.vincere.io/api/v2/company/search/fl=id,name;sort=name asc?rows=500&start=${start}`;
+      const url = `https://${tenant}.vincere.io/api/v2/company/search/fl=id,name;sort=name asc?rows=100&start=${start}`;
       const r = await fetch(url, { headers });
       if (!r.ok) break;
       const d = await r.json();
       const items = d.result?.items || [];
       if (total === null) total = d.result?.total || 0;
       items.forEach(c => { if (c.name) allNames.push(c.name); });
+      if (items.length === 0) break;  // No more results
       start += items.length;
-      if (items.length < 500 || start >= total) break;
-      // Safety: max 20 pages (10000 companies)
-      if (start >= 10000) break;
+      if (start >= total) break;      // Loaded everything
+      if (start >= 10000) break;      // Safety cap
     }
 
     return res.status(200).json({ names: allNames, total: allNames.length, connected: true });
