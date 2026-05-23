@@ -43,7 +43,7 @@ export default async function handler(req, res) {
     let total = null;
 
     while (true) {
-      const url = 'https://' + tenant + '.vincere.io/api/v2/company/search/fl=id,name;sort=name asc?keyword=&start=' + start + '&rows=500';
+      const url = `https://${tenant}.vincere.io/api/v2/company/search/fl=id,name;sort=name asc?rows=500&start=${start}`;
       const r = await fetch(url, { headers });
       if (!r.ok) break;
       const d = await r.json();
