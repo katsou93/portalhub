@@ -36,11 +36,16 @@ export default async function handler(req, res) {
     const idToken = tokenData.id_token || tokenData.access_token;
     if (!idToken) return res.redirect('/?crm=error&reason=no_token');
 
-    // Token erfolgreich — direkt als verbunden markieren, kein extra API-Test
-    res.setHeader('Set-Cookie', [
-      'vincere_token=' + idToken + '; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=86400',
-      'vincere_domain=' + (process.env.VINCERE_TENANT || '') + '; Path=/; Secure; SameSite=Lax; Max-Age=3600',
-    ]);
+    const expiresIn = tokenData.expires_in || 3600;
+    const cookieParts = [
+      'vincere_token=' + idToken + '; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=' + expiresIn,
+      'vincere_domain=' + (process.env.VINCERE_TENANT || '') + '; Path=/; Secure; SameSite=Lax; Max-Age=86400',
+    ];
+    if (tokenData.refresh_token) {
+      // Refresh token is long-lived (30 days)
+      cookieParts.push('vincere_refresh_token=' + tokenData.refresh_token + '; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=2592000');
+    }
+    res.setHeader('Set-Cookie', cookieParts);
 
     return res.redirect('/?crm=connected');
 

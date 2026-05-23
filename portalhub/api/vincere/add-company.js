@@ -7,12 +7,44 @@ export default async function handler(req, res) {
   const cookies = Object.fromEntries(cookieStr.split(';').map(c=>{
     const[k,...v]=c.trim().split('=');return[k,v.join('=')];
   }));
-  const token = cookies.vincere_token;
+  let token = cookies.vincere_token;
   if(!token) return res.status(401).json({error:'not_authenticated'});
 
   const tenant = process.env.VINCERE_TENANT;
   const apiKey = process.env.VINCERE_API_KEY;
   const appId  = process.env.VINCERE_APP_ID;
+  const clientId = process.env.VINCERE_CLIENT_ID;
+
+  // Auto-refresh token if needed
+  async function getFreshToken() {
+    // Quick test
+    const test = await fetch('https://'+tenant+'.vincere.io/api/v2/company/search/fl=id?rows=1', {
+      headers: {'id-token':token,'x-api-key':apiKey}
+    });
+    if (test.ok) return token;
+    // Token expired - try refresh
+    const refreshToken = cookies.vincere_refresh_token;
+    if (!refreshToken || !clientId) return token;
+    const r = await fetch('https://id.vincere.io/oauth2/token', {
+      method: 'POST',
+      headers: {'Content-Type':'application/x-www-form-urlencoded'},
+      body: new URLSearchParams({grant_type:'refresh_token',client_id:clientId,refresh_token:refreshToken})
+    });
+    if (!r.ok) return token;
+    const data = await r.json();
+    const newToken = data.id_token || data.access_token;
+    if (!newToken) return token;
+    const expiresIn = data.expires_in || 3600;
+    // Set new token cookie
+    const existing = res.getHeader('Set-Cookie') || [];
+    const arr = Array.isArray(existing) ? existing : [existing];
+    arr.push('vincere_token='+newToken+'; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age='+expiresIn);
+    if (data.refresh_token) arr.push('vincere_refresh_token='+data.refresh_token+'; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=2592000');
+    res.setHeader('Set-Cookie', arr);
+    return newToken;
+  }
+
+  token = await getFreshToken();
   const headers = {'Content-Type':'application/json','id-token':token,'x-api-key':apiKey};
 
   const { name, city, postcode, website } = req.body||{};
