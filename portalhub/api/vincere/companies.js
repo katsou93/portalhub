@@ -1,18 +1,31 @@
-export default async function handler(req, res) {
-  res.setHeader('Access-Control-Allow-Origin', '*');
-  if (req.method === 'OPTIONS') return res.status(200).end();
+import { Redis } from '@upstash/redis';
 
-  const cookies = Object.fromEntries(
-    (req.headers.cookie || '').split(';').map(c => c.trim()).filter(Boolean)
-      .map(c => { const i = c.indexOf('='); return [c.slice(0,i).trim(), c.slice(i+1)]; })
-  );
-  let token = cookies.vincere_token;
-  if (!token) return res.status(401).json({ error: 'not_authenticated' });
+const KV_KEY = 'portalhub:added_companies_v1';
+
+function getRedis() {
+  return new Redis({ url: process.env.KV_REST_API_URL, token: process.env.KV_REST_API_TOKEN });
+}
+
+function parseCookies(req) {
+  const c = {};
+  (req.headers.cookie||'').split(';').forEach(s=>{const t=s.trim();const i=t.indexOf('=');if(i>0)c[t.slice(0,i).trim()]=t.slice(i+1);});
+  return c;
+}
+
+export default async function handler(req, res) {
+  res.setHeader('Access-Control-Allow-Origin','*');
+  if(req.method==='OPTIONS') return res.status(200).end();
+
+  const cookies = parseCookies(req);
+  const token = cookies.vincere_token;
+  if(!token) return res.status(401).json({error:'not_authenticated'});
 
   const tenant   = process.env.VINCERE_TENANT;
   const apiKey   = process.env.VINCERE_API_KEY;
   const clientId = process.env.VINCERE_CLIENT_ID;
   const refreshTok = cookies.vincere_refresh_token;
+
+  let validToken = token;
 
   // Auto-refresh token if expired
   const testR = await fetch(`https://${tenant}.vincere.io/api/v2/company/search/fl=id?rows=1`, {
@@ -28,33 +41,48 @@ export default async function handler(req, res) {
     if (r && r.ok) {
       const d = await r.json();
       if (d.id_token || d.access_token) {
-        token = d.id_token || d.access_token;
-        res.setHeader('Set-Cookie', [`vincere_token=${token}; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=${d.expires_in || 3600}`]);
+        validToken = d.id_token || d.access_token;
+        res.setHeader('Set-Cookie', [`vincere_token=${validToken}; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=${d.expires_in || 3600}`]);
       }
     }
   }
 
-  const headers = { 'id-token': token, 'x-api-key': apiKey };
-
-  try {
-    // Load ALL companies page by page (500 per request)
-    const allNames = [];
-    let start = 0;
-    let total = null;
-
-    while (true) {
-      const url = `https://${tenant}.vincere.io/api/v2/company/search/fl=id,name;sort=name asc?rows=100&start=${start}`;
-      const r = await fetch(url, { headers });
-      if (!r.ok) break;
-      const d = await r.json();
-      const items = d.result?.items || [];
-      if (total === null) total = d.result?.total || 0;
-      items.forEach(c => { if (c.name) allNames.push(c.name); });
-      if (items.length === 0) break;  // No more results
-      start += items.length;
-      if (start >= total) break;      // Loaded everything
-      if (start >= 10000) break;      // Safety cap
+  // POST: add a company name to our KV list
+  if (req.method === 'POST') {
+    const { name } = req.body || {};
+    if (!name) return res.status(400).json({ error: 'name required' });
+    try {
+      const redis = getRedis();
+      const existing = await redis.get(KV_KEY) || [];
+      if (!existing.includes(name)) {
+        existing.unshift(name);
+        await redis.set(KV_KEY, existing);
+      }
+      return res.status(200).json({ ok: true, total: existing.length });
+    } catch (e) {
+      return res.status(500).json({ error: e.message });
     }
+  }
+
+  // GET: return our KV list + Vincere's search index (first page)
+  try {
+    const redis = getRedis();
+    const kvNames = await redis.get(KV_KEY) || [];
+
+    // Also get first 100 from Vincere search (for existing pre-portalhub companies)
+    const vincereNames = [];
+    try {
+      const url = `https://${tenant}.vincere.io/api/v2/company/search/fl=id,name;sort=name asc?rows=100&start=0`;
+      const r = await fetch(url, { headers: { 'id-token': validToken, 'x-api-key': apiKey } });
+      if (r.ok) {
+        const d = await r.json();
+        (d.result?.items || []).forEach(c => { if (c.name) vincereNames.push(c.name); });
+      }
+    } catch {}
+
+    // Merge: KV list + Vincere (deduplicated)
+    const allNames = [...kvNames];
+    vincereNames.forEach(n => { if (!allNames.some(k => k.toLowerCase() === n.toLowerCase())) allNames.push(n); });
 
     return res.status(200).json({ names: allNames, total: allNames.length, connected: true });
   } catch (e) {

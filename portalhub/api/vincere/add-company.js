@@ -92,6 +92,18 @@ export default async function handler(req, res) {
       }
     }
 
+    // Save company name to KV for fast matching on next search
+    try {
+      const { Redis } = await import('@upstash/redis');
+      const redis = new Redis({ url: process.env.KV_REST_API_URL, token: process.env.KV_REST_API_TOKEN });
+      const KV_KEY = 'portalhub:added_companies_v1';
+      const existing = await redis.get(KV_KEY) || [];
+      if (!existing.includes(compData.company_name)) {
+        existing.unshift(compData.company_name);
+        await redis.set(KV_KEY, existing);
+      }
+    } catch (e) { console.log('KV save failed:', e.message); }
+
     return res.status(200).json({ ok: true, id: companyId, name: compData.company_name, locationId, website: website || null });
   } catch (e) {
     console.error('add-company error:', e.message);
