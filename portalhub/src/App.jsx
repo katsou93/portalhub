@@ -614,8 +614,14 @@ export default function App() {
         setActs(a=>[{id:Date.now(),text:'⚠ '+name+': '+err,time:new Date().toLocaleTimeString('de-DE',{hour:'2-digit',minute:'2-digit'}),col:C.red},...a]);
         return false;
       }
-      // Company added - show immediately
+      // Company added - show immediately and reload full list
       setVNames(p=>[...p,name]);
+      // Reload full Vincere list after 2s to ensure fresh data
+      setTimeout(()=>{
+        loadVincereCompanies().then(d=>{
+          if(d&&d.names&&d.names.length>0) setVNames(d.names);
+        });
+      }, 2000);
       const loc=[postcode,city].filter(Boolean).join(' ');
       setActs(a=>[{id:Date.now(),text:'✓ '+name+(loc?' · '+loc:''),time:new Date().toLocaleTimeString('de-DE',{hour:'2-digit',minute:'2-digit'}),col:C.violet},...a]);
 
@@ -680,7 +686,7 @@ export default function App() {
           } else {
             setActs(a=>[{id:Date.now(),text:'ℹ Kein Kontakt gefunden für '+name,time:new Date().toLocaleTimeString('de-DE',{hour:'2-digit',minute:'2-digit'}),col:C.muted},...a]);
           }
-        }catch(e){ console.error('contact search error:', e); }
+        }catch(e){ console.error('contact search error:',e); setActs(a=>[{id:Date.now(),text:'⚠ Kontakt-Fehler: '+e.message,time:new Date().toLocaleTimeString('de-DE',{hour:'2-digit',minute:'2-digit'}),col:C.red},...a]); }
       })();
 
       return true;

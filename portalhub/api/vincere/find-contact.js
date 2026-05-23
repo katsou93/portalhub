@@ -136,10 +136,13 @@ export default async function handler(req, res) {
   };
 
   // Pages to try in order - HR pages first, then Impressum for CEO
+  // Build candidate URLs to try - also try homepage redirect which may reveal real domain
   const pages = [
     { url: base + '/karriere',      type: 'career' },
     { url: base + '/jobs',          type: 'career' },
+    { url: base + '/stellenangebote', type: 'career' },
     { url: base + '/kontakt',       type: 'contact' },
+    { url: base + '/ueber-uns',     type: 'contact' },
     { url: base + '/team',          type: 'contact' },
     { url: base + '/impressum',     type: 'impressum' },
     { url: base,                    type: 'home' },
