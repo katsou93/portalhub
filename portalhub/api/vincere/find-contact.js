@@ -136,16 +136,25 @@ export default async function handler(req, res) {
   };
 
   // Pages to try in order - HR pages first, then Impressum for CEO
-  // Build candidate URLs to try - also try homepage redirect which may reveal real domain
+  // Build candidate URLs to try - also try alt base domain
+  const altBase = result._altBase;
+  delete result._altBase;
   const pages = [
-    { url: base + '/karriere',      type: 'career' },
-    { url: base + '/jobs',          type: 'career' },
+    { url: base + '/karriere',        type: 'career' },
+    { url: base + '/jobs',            type: 'career' },
     { url: base + '/stellenangebote', type: 'career' },
-    { url: base + '/kontakt',       type: 'contact' },
-    { url: base + '/ueber-uns',     type: 'contact' },
-    { url: base + '/team',          type: 'contact' },
-    { url: base + '/impressum',     type: 'impressum' },
-    { url: base,                    type: 'home' },
+    { url: base + '/kontakt',         type: 'contact' },
+    { url: base + '/ueber-uns',       type: 'contact' },
+    { url: base + '/team',            type: 'contact' },
+    { url: base + '/impressum',       type: 'impressum' },
+    { url: base,                      type: 'home' },
+    // Try alt base (two-word slug) as fallback
+    ...(altBase ? [
+      { url: altBase + '/karriere',   type: 'career' },
+      { url: altBase + '/kontakt',    type: 'contact' },
+      { url: altBase + '/impressum',  type: 'impressum' },
+      { url: altBase,                 type: 'home' },
+    ] : []),
   ];
 
   let ceoContact = null;
