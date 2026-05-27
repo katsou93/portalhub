@@ -585,7 +585,9 @@ export default function App() {
   const [acts,setActs]=useState([]);
   const [sh,setSH]=useState([]);
   const [connected,setConnected]=useState(false);
-  const [vNames,setVNames]=useState([]);
+  const [vNames,setVNames]=useState(()=>{
+    try{const s=localStorage.getItem('portalhub_vnames');return s?JSON.parse(s):[];}catch{return [];}
+  });
   const [addingId,setAddingId]=useState(null);
 
   useEffect(()=>{
@@ -601,7 +603,10 @@ export default function App() {
     loadVincereCompanies().then(d=>{
       if(!d)return;
       setConnected(true);
-      if(d.names&&d.names.length>0)setVNames(d.names);
+      if(d.names&&d.names.length>0){
+        setVNames(d.names);
+        try{localStorage.setItem('portalhub_vnames',JSON.stringify(d.names));}catch{}
+      }
     });
   },[]);
 
@@ -616,7 +621,11 @@ export default function App() {
         return false;
       }
       // Company added - show immediately and reload full list
-      setVNames(p=>[...p,name]);
+      setVNames(p=>{
+        const next=[...p,name];
+        try{localStorage.setItem('portalhub_vnames',JSON.stringify(next));}catch{}
+        return next;
+      });
       // Reload full Vincere list after 2s to ensure fresh data
       setTimeout(()=>{
         loadVincereCompanies().then(d=>{
