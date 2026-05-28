@@ -5,7 +5,7 @@
 // ── Domain prober ─────────────────────────────────────────────────────────
 async function findWebsiteByProbing(companyName, city) {
   const norm = companyName.toLowerCase()
-    .replace(/gmbh\s*&\s*co\.?\s*kg|gmbh\s*&\s*co|gmbh|grp\.|group|\bag\b|\bse\b|\bkg\b|e\.v\.|ohg|\bug\b/gi, '')
+    .replace(/\bgmbh\s*&\s*co\.?\s*kg\b|\bgmbh\s*&\s*co\b|\bgmbh\b|\bgrp\.\b|\bgroup\b|\bag\b|\bse\b|\bkg\b|\be\.v\.\b|\bohg\b|\bug\b/gi, '')
     .replace(/niederlassung\s+\w+/gi, '')
     .replace(/ä/g,'ae').replace(/ö/g,'oe').replace(/ü/g,'ue').replace(/ß/g,'ss')
     .replace(/[^a-z0-9\s]/g, ' ').replace(/\s+/g, '-').replace(/^-+|-+$/g, '');
