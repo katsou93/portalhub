@@ -1,3 +1,65 @@
+// ── DuckDuckGo website finder ─────────────────────────────────────────────
+async function findWebsiteViaDDG(companyName) {
+  try {
+    const searchQuery = '"' + companyName + '" Impressum';
+    const r = await fetch('https://html.duckduckgo.com/html/', {
+      method: 'POST',
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+        'Accept': 'text/html,application/xhtml+xml',
+        'Accept-Language': 'de-DE,de;q=0.9',
+        'Content-Type': 'application/x-www-form-urlencoded',
+      },
+      body: 'q=' + encodeURIComponent(searchQuery) + '&b=&kl=de-de',
+      signal: (() => { const c = new AbortController(); setTimeout(() => c.abort(), 5000); return c.signal; })(),
+    });
+    const html = await r.text();
+    if (!r.ok || html.length < 100) return null;
+
+    // Extract result URLs from DDG HTML response
+    const urlMatches = [...html.matchAll(/uddg=([^"&]+)/g)]
+      .map(m => decodeURIComponent(m[1]))
+      .filter(u => u.startsWith('http'));
+
+    // Build keywords from company name (skip legal suffixes)
+    const keywords = companyName.toLowerCase()
+      .replace(/gmbh & co\.? kg|gmbh & co|gmbh|\bag\b|\bkg\b|\bse\b|e\.v\./gi, '')
+      .replace(/[^a-z0-9äöüß]/g, ' ').trim()
+      .split(/\s+/).filter(w => w.length > 3);
+
+    const SKIP = /linkedin|xing|facebook|instagram|kununu|stepstone|indeed|monster|arbeitsagentur|wikipedia|youtube|twitter|tiktok|google|bing|yahoo|wlw\.de|firmenwissen|northdata|handelsregister|opencorporates|dnb\.com/i;
+
+    
+    for (const u of urlMatches) {
+      try {
+        const parsed = new URL(u);
+        const domain = parsed.hostname.replace(/^www\./, '');
+        if (SKIP.test(domain)) continue;
+        // Domain must contain at least one company keyword
+        const domainParts = domain.split(/[.\-]/);
+        const hit = keywords.some(k => domainParts.some(d => d.includes(k) || k.includes(d)));
+        if (hit) {
+          const found = 'https://' + parsed.hostname;
+          return found;
+        }
+      } catch {}
+    }
+    // Fallback: if no keyword match, try first non-skipped result
+    for (const u of urlMatches) {
+      try {
+        const parsed = new URL(u);
+        if (!SKIP.test(parsed.hostname)) {
+          const found = 'https://' + parsed.hostname;
+          return found;
+        }
+      } catch {}
+    }
+    return null;
+  } catch (e) {
+    return null;
+  }
+}
+
 // find-contact.js
 // Priority: 1) jobText (Stellenanzeige)  2) Website scraping (nur wenn echte URL bekannt)
 // NEVER invent contacts - only real people from real sources
@@ -123,74 +185,6 @@ export default async function handler(req, res) {
     } catch { return null; }
   };
 
-  // ── DuckDuckGo website finder ─────────────────────────────────────────────
-  async function findWebsiteViaDDG(companyName) {
-    try {
-      const searchQuery = '"' + companyName + '" Impressum';
-      const r = await fetch('https://html.duckduckgo.com/html/', {
-        method: 'POST',
-        headers: {
-          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-          'Accept': 'text/html,application/xhtml+xml',
-          'Accept-Language': 'de-DE,de;q=0.9',
-          'Content-Type': 'application/x-www-form-urlencoded',
-        },
-        body: 'q=' + encodeURIComponent(searchQuery) + '&b=&kl=de-de',
-        signal: (() => { const c = new AbortController(); setTimeout(() => c.abort(), 5000); return c.signal; })(),
-      });
-      const html = await r.text();
-      console.log('DDG status:', r.status, 'html length:', html.length, 'first200:', html.substring(0,200));
-      if (!r.ok || html.length < 100) return null;
-
-      // Extract result URLs from DDG HTML response
-      const urlMatches = [...html.matchAll(/uddg=([^"&]+)/g)]
-        .map(m => decodeURIComponent(m[1]))
-        .filter(u => u.startsWith('http'));
-
-      // Build keywords from company name (skip legal suffixes)
-      const keywords = companyName.toLowerCase()
-        .replace(/gmbh & co\.? kg|gmbh & co|gmbh|\bag\b|\bkg\b|\bse\b|e\.v\./gi, '')
-        .replace(/[^a-z0-9äöüß]/g, ' ').trim()
-        .split(/\s+/).filter(w => w.length > 3);
-
-      const SKIP = /linkedin|xing|facebook|instagram|kununu|stepstone|indeed|monster|arbeitsagentur|wikipedia|youtube|twitter|tiktok|google|bing|yahoo|wlw\.de|firmenwissen|northdata|handelsregister|opencorporates|dnb\.com/i;
-
-      console.log('DDG urls found:', urlMatches.length, 'keywords:', keywords);
-      console.log('DDG first 5 urls:', urlMatches.slice(0,5).join(' | '));
-      
-      for (const u of urlMatches) {
-        try {
-          const parsed = new URL(u);
-          const domain = parsed.hostname.replace(/^www\./, '');
-          if (SKIP.test(domain)) continue;
-          // Domain must contain at least one company keyword
-          const domainParts = domain.split(/[.\-]/);
-          const hit = keywords.some(k => domainParts.some(d => d.includes(k) || k.includes(d)));
-          console.log('DDG check:', domain, 'domainParts:', domainParts, 'hit:', hit, 'keywords:', keywords);
-          if (hit) {
-            const found = 'https://' + parsed.hostname;
-            console.log('DDG found:', found, 'for', companyName);
-            return found;
-          }
-        } catch {}
-      }
-      // Fallback: if no keyword match, try first non-skipped result
-      for (const u of urlMatches) {
-        try {
-          const parsed = new URL(u);
-          if (!SKIP.test(parsed.hostname)) {
-            const found = 'https://' + parsed.hostname;
-            console.log('DDG fallback (first result):', found);
-            return found;
-          }
-        } catch {}
-      }
-      return null;
-    } catch (e) {
-      console.log('DDG error:', e.message);
-      return null;
-    }
-  }
 
   // ── Priority 0: Parse jobText from Stellenanzeige ─────────────────────────
   if (jobText) {
