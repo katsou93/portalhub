@@ -648,11 +648,12 @@ export default function App() {
             if(baDetail?.kontaktAngaben){
               const k = baDetail.kontaktAngaben;
               const fullName = (k.ansprechpartner||k.name||'').trim();
-              const parts = fullName.split(/\s+/);
-              if(parts.length >= 2){
+              const parts = fullName.split(/\s+/).filter(Boolean);
+              // Accept even single-word names if email is present
+              if(parts.length >= 2 || (parts.length === 1 && (k.email||k.emailAdresse))){
                 contact = {
-                  firstName: parts[0],
-                  lastName:  parts.slice(1).join(' '),
+                  firstName: parts[0] || null,
+                  lastName:  parts.slice(1).join(' ') || null,
                   email:     k.email||k.emailAdresse||null,
                   phone:     k.telefonnummer||k.telefon||null,
                   position:  k.berufsbezeichnung||'Ansprechpartner/in',

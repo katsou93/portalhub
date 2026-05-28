@@ -41,14 +41,41 @@ export default async function handler(req, res) {
       if (!r.ok) return res.status(200).json({ kontaktAngaben: null, arbeitgeberHomepage: null });
       const d = await r.json();
       const stelle = d.stellenangebot || d;
+      let kontaktAngaben = stelle.kontaktAngaben || null;
+      
+      // If API returns no contact, scrape the BA HTML job page
+      if (!kontaktAngaben) {
+        try {
+          const pageUrl = 'https://www.arbeitsagentur.de/jobsuche/jobdetail/' + encodeURIComponent(refnr);
+          const pageR = await fetch(pageUrl, {
+            headers: { 'User-Agent': 'Mozilla/5.0', 'Accept': 'text/html' },
+            signal: AbortSignal.timeout(4000),
+          });
+          if (pageR.ok) {
+            const html = await pageR.text();
+            // Extract contact from HTML - BA uses specific patterns
+            const nameMatch = html.match(/(?:Ansprechpartner(?:in)?|Ihr Kontakt)[^<]*<[^>]+>([^<]+)<\/|(?:Ansprechpartner(?:in)?):\s*([A-ZÄÖÜ][a-zA-ZäöüÄÖÜß\s\-\.]{3,40}?)(?:<|
+)/i);
+            const emailMatch = html.match(/href="mailto:([^"]+)"/i);
+            const phoneMatch = html.match(/(?:Tel(?:efon|\.)?|Fon)[:\s]+([+\d][\d\s()\-\/]{6,20})/i);
+            
+            if (nameMatch || emailMatch) {
+              const rawName = (nameMatch?.[1] || nameMatch?.[2] || '').trim().replace(/\s+/g,' ');
+              const parts = rawName.split(/\s+/);
+              kontaktAngaben = {
+                ansprechpartner: rawName || null,
+                email: emailMatch?.[1] || null,
+                telefonnummer: phoneMatch?.[1]?.trim() || null,
+              };
+            }
+          }
+        } catch(e) { /* scraping failed, continue */ }
+      }
+
       return res.status(200).json({
-        kontaktAngaben: stelle.kontaktAngaben || null,
+        kontaktAngaben: kontaktAngaben,
         arbeitgeberHomepage: stelle.arbeitgeberHomepage || null,
         stellenbeschreibung: stelle.stellenbeschreibung || null,
-        // Extra fields that may contain contact info
-        ansprechpartner: stelle.ansprechpartner || null,
-        bewerbungsinfos: stelle.bewerbungsinfos || null,
-        firmeninfo: stelle.firmeninfo || null,
       });
     }
 
