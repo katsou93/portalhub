@@ -55,7 +55,29 @@ export default async function handler(req, res) {
     });
     const compData = await compR.json();
     console.log('Company POST:', compR.status, JSON.stringify(compData).substring(0, 200));
-    if (!compR.ok) return res.status(200).json({ ok: false, vincereError: compData, status: compR.status });
+    if (!compR.ok) {
+      // If duplicate, find the existing company and return its id so we can still add a contact
+      if (compData?.errorCode === 'DUPLICATED' || compData?.message?.includes('already associated')) {
+        try {
+          const searchName = encodeURIComponent(name.substring(0, 30));
+          const sr = await fetch(`https://${tenant}.vincere.io/api/v2/company/search/fl=id,name?keyword=${searchName}&rows=5`, {
+            headers: h
+          });
+          if (sr.ok) {
+            const sd = await sr.json();
+            const found = (sd.result?.items || []).find(c =>
+              c.name?.toLowerCase().replace(/\s+/g,'') === name.toLowerCase().replace(/\s+/g,'')
+              || c.name?.toLowerCase().includes(name.toLowerCase().substring(0,15))
+            );
+            if (found) {
+              console.log('Found existing company:', found.id, found.name);
+              return res.status(200).json({ ok: true, id: found.id, name: found.name, locationId: null, existing: true });
+            }
+          }
+        } catch (e) { console.log('Search existing failed:', e.message); }
+      }
+      return res.status(200).json({ ok: false, vincereError: compData, status: compR.status });
+    }
 
     const companyId = compData.id;
 
