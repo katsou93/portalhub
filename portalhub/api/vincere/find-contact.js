@@ -200,7 +200,16 @@ export default async function handler(req, res) {
 
     const email = bestEmail(text);
     const phone = bestPhone(text);
-    if (email && !bestEmailFound) bestEmailFound = email;
+    // Upgrade bestEmailFound if we find a better (more specific) email
+    if (email) {
+      if (!bestEmailFound) {
+        bestEmailFound = email;
+      } else if (HR_EMAIL.test(email) && !HR_EMAIL.test(bestEmailFound)) {
+        bestEmailFound = email; // upgrade: found HR email, had generic before
+      } else if (!GENERIC.test(email) && GENERIC.test(bestEmailFound)) {
+        bestEmailFound = email; // upgrade: found personal email, had generic before
+      }
+    }
     if (phone && !bestPhoneFound) bestPhoneFound = phone;
 
     // Try HR contact first (any page)
