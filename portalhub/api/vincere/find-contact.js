@@ -45,11 +45,10 @@ async function findWebsiteByProbing(companyName, city) {
       clearTimeout(t);
       if (!r.ok) return null;
       const text = (await r.text()).toLowerCase();
-      // Must mention at least ONE main keyword (>5 chars) from company name
-      const mainKW = norm.split('-').filter(w => w.length > 5);
-      const hit = mainKW.length > 0
-        ? mainKW.some(k => text.includes(k))
-        : norm.split('-').filter(w => w.length > 3).some(k => text.includes(k));
+      // Require ALL significant words (>3 chars) to appear on the page
+      // This prevents false positives like emsland.de for "Emsland Frischgeflügel"
+      const allKW = norm.split('-').filter(w => w.length > 3);
+      const hit = allKW.length > 0 ? allKW.every(k => text.includes(k)) : true;
       if (!hit) return null;
       return 'https://' + new URL(r.url || url).hostname;
     } catch { clearTimeout(t); return null; }
