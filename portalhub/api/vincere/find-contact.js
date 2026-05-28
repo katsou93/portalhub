@@ -33,9 +33,10 @@ async function findWebsiteByProbing(companyName, city) {
   }
 
   // Validate domain: content must mention company keywords AND optionally city
+  // Probe ALL candidates in PARALLEL - max 2.5s each, all at once (fits Vercel 10s limit)
   const validate = async (url) => {
     const ctrl = new AbortController();
-    const t = setTimeout(() => ctrl.abort(), 3000);
+    const t = setTimeout(() => ctrl.abort(), 2500);
     try {
       const r = await fetch(url, {
         headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36' },
@@ -44,19 +45,19 @@ async function findWebsiteByProbing(companyName, city) {
       clearTimeout(t);
       if (!r.ok) return null;
       const text = (await r.text()).toLowerCase();
-      // Must mention ALL name keywords (avoid false positives)
-      const nameMatch = nameKeywords.every(k => text.includes(k));
-      // Bonus: also check city
-      const cityMatch = cityNorm && cityNorm.length > 3 ? text.includes(cityNorm) : true;
-      if (nameMatch && cityMatch) return 'https://' + new URL(r.url || url).hostname;
-      if (nameMatch && !cityNorm) return 'https://' + new URL(r.url || url).hostname;
-      return null;
+      // Must mention at least ONE main keyword (>5 chars) from company name
+      const mainKW = norm.split('-').filter(w => w.length > 5);
+      const hit = mainKW.length > 0
+        ? mainKW.some(k => text.includes(k))
+        : norm.split('-').filter(w => w.length > 3).some(k => text.includes(k));
+      if (!hit) return null;
+      return 'https://' + new URL(r.url || url).hostname;
     } catch { clearTimeout(t); return null; }
   };
 
-  // Try sequentially from most specific to least
-  for (const url of [...new Set(probes)]) {
-    const result = await validate(url);
+  const probeResults = await Promise.all([...new Set(probes)].map(validate));
+  // Return first valid result (preserves candidate priority order)
+  for (const result of probeResults) {
     if (result) { console.log('probe found:', result); return result; }
   }
   return null;
