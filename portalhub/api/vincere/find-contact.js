@@ -137,8 +137,9 @@ export default async function handler(req, res) {
         body: 'q=' + encodeURIComponent(searchQuery) + '&b=&kl=de-de',
         signal: AbortSignal.timeout(5000),
       });
-      if (!r.ok) return null;
       const html = await r.text();
+      console.log('DDG status:', r.status, 'html length:', html.length, 'first200:', html.substring(0,200));
+      if (!r.ok || html.length < 100) return null;
 
       // Extract result URLs from DDG HTML response
       const urlMatches = [...html.matchAll(/uddg=([^"&]+)/g)]
