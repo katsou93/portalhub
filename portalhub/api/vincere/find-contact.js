@@ -150,6 +150,9 @@ export default async function handler(req, res) {
 
       const SKIP = /linkedin|xing|facebook|instagram|kununu|stepstone|indeed|monster|arbeitsagentur|wikipedia|youtube|twitter|tiktok|google|bing|yahoo|wlw\.de|firmenwissen|northdata|handelsregister|opencorporates|dnb\.com/i;
 
+      console.log('DDG urls found:', urlMatches.length, 'keywords:', keywords);
+      console.log('DDG first 5 urls:', urlMatches.slice(0,5).join(' | '));
+      
       for (const u of urlMatches) {
         try {
           const parsed = new URL(u);
@@ -158,9 +161,21 @@ export default async function handler(req, res) {
           // Domain must contain at least one company keyword
           const domainParts = domain.split(/[.\-]/);
           const hit = keywords.some(k => domainParts.some(d => d.includes(k) || k.includes(d)));
+          console.log('DDG check:', domain, 'domainParts:', domainParts, 'hit:', hit, 'keywords:', keywords);
           if (hit) {
             const found = 'https://' + parsed.hostname;
             console.log('DDG found:', found, 'for', companyName);
+            return found;
+          }
+        } catch {}
+      }
+      // Fallback: if no keyword match, try first non-skipped result
+      for (const u of urlMatches) {
+        try {
+          const parsed = new URL(u);
+          if (!SKIP.test(parsed.hostname)) {
+            const found = 'https://' + parsed.hostname;
+            console.log('DDG fallback (first result):', found);
             return found;
           }
         } catch {}
