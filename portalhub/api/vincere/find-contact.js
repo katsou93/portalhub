@@ -48,9 +48,12 @@ async function findWebsiteViaDDG(companyName) {
     }
 
     // Keywords from company name (without legal suffix)
-    const keywords = companyName.toLowerCase()
+    // Normalize umlauts so "frischgeflügel" matches "frischgefluegel"
+    const normalizeUmlauts = s => s
+      .replace(/ä/g,'ae').replace(/ö/g,'oe').replace(/ü/g,'ue').replace(/ß/g,'ss');
+    const keywords = normalizeUmlauts(companyName.toLowerCase())
       .replace(/gmbh\s*&\s*co\.?\s*kg|gmbh\s*&\s*co|gmbh|grp\.|group|\bag\b|\bse\b|\bkg\b|e\.v\.|ohg|\bug\b/gi, '')
-      .replace(/[^a-z0-9äöüß]/g, ' ').trim()
+      .replace(/[^a-z0-9]/g, ' ').trim()
       .split(/\s+/).filter(w => w.length > 3);
 
     const SKIP = /linkedin|xing|facebook|instagram|kununu|stepstone|indeed|monster|arbeitsagentur|wikipedia|youtube|twitter|tiktok|google\.com|bing\.com|yahoo|wlw\.de|firmenwissen|northdata|handelsregister|opencorporates|dnb\.com|duckduckgo|amazon|ebay/i;
