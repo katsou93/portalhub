@@ -1,69 +1,92 @@
-// ── DuckDuckGo website finder ─────────────────────────────────────────────
+// find-contact.js — reliable contact finder
+// Priority: 1) jobText  2) Website (if known)  3) DuckDuckGo → Website  4) null
+// NEVER invent contacts. Only real people from real sources.
+
+// ── DuckDuckGo: find company website ───────────────────────────────────────
 async function findWebsiteViaDDG(companyName) {
   try {
-    const searchQuery = '"' + companyName + '" Impressum';
-    const r = await fetch('https://html.duckduckgo.com/html/', {
-      method: 'POST',
-      headers: {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-        'Accept': 'text/html,application/xhtml+xml',
-        'Accept-Language': 'de-DE,de;q=0.9',
-        'Content-Type': 'application/x-www-form-urlencoded',
-      },
-      body: 'q=' + encodeURIComponent(searchQuery) + '&b=&kl=de-de',
-      signal: (() => { const c = new AbortController(); setTimeout(() => c.abort(), 5000); return c.signal; })(),
-    });
+    const query = '"' + companyName + '" Impressum';
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 6000);
+    let r;
+    try {
+      r = await fetch('https://html.duckduckgo.com/html/', {
+        method: 'POST',
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+          'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+          'Accept-Language': 'de-DE,de;q=0.9',
+          'Content-Type': 'application/x-www-form-urlencoded',
+          'Origin': 'https://duckduckgo.com',
+          'Referer': 'https://duckduckgo.com/',
+        },
+        body: 'q=' + encodeURIComponent(query) + '&kl=de-de',
+        signal: controller.signal,
+      });
+    } finally {
+      clearTimeout(timer);
+    }
+    if (!r || !r.ok) return null;
     const html = await r.text();
-    if (!r.ok || html.length < 100) return null;
+    if (html.length < 500) return null;
 
-    // Extract result URLs from DDG HTML response
-    const urlMatches = [...html.matchAll(/uddg=([^"&]+)/g)]
-      .map(m => decodeURIComponent(m[1]))
-      .filter(u => u.startsWith('http'));
+    // DDG HTML 4.01 format: URLs in uddg= param OR in href of result links
+    const candidates = new Set();
 
-    // Build keywords from company name (skip legal suffixes)
+    // Pattern 1: uddg= encoded URLs
+    for (const m of html.matchAll(/uddg=([^"&\s]+)/g)) {
+      try { candidates.add(decodeURIComponent(m[1])); } catch {}
+    }
+    // Pattern 2: result__url or result__a links
+    for (const m of html.matchAll(/href="(https?:\/\/[^"]+)"/g)) {
+      candidates.add(m[1]);
+    }
+    // Pattern 3: result snippet URLs (text that looks like domain)
+    for (const m of html.matchAll(/class="result__url[^>]*>([^<]+)</g)) {
+      const u = m[1].trim();
+      if (u && !u.includes(' ')) candidates.add('https://' + u.replace(/^https?:\/\//, ''));
+    }
+
+    // Keywords from company name (without legal suffix)
     const keywords = companyName.toLowerCase()
-      .replace(/gmbh & co\.? kg|gmbh & co|gmbh|\bag\b|\bkg\b|\bse\b|e\.v\./gi, '')
+      .replace(/gmbh\s*&\s*co\.?\s*kg|gmbh\s*&\s*co|gmbh|grp\.|group|\bag\b|\bse\b|\bkg\b|e\.v\.|ohg|\bug\b/gi, '')
       .replace(/[^a-z0-9äöüß]/g, ' ').trim()
       .split(/\s+/).filter(w => w.length > 3);
 
-    const SKIP = /linkedin|xing|facebook|instagram|kununu|stepstone|indeed|monster|arbeitsagentur|wikipedia|youtube|twitter|tiktok|google|bing|yahoo|wlw\.de|firmenwissen|northdata|handelsregister|opencorporates|dnb\.com/i;
+    const SKIP = /linkedin|xing|facebook|instagram|kununu|stepstone|indeed|monster|arbeitsagentur|wikipedia|youtube|twitter|tiktok|google\.com|bing\.com|yahoo|wlw\.de|firmenwissen|northdata|handelsregister|opencorporates|dnb\.com|duckduckgo|amazon|ebay/i;
 
-    
-    for (const u of urlMatches) {
+    const urlArr = Array.from(candidates).filter(u => {
+      try { return u.startsWith('http'); } catch { return false; }
+    });
+
+    // 1st pass: keyword match
+    for (const u of urlArr) {
       try {
-        const parsed = new URL(u);
-        const domain = parsed.hostname.replace(/^www\./, '');
-        if (SKIP.test(domain)) continue;
-        // Domain must contain at least one company keyword
-        const domainParts = domain.split(/[.\-]/);
-        const hit = keywords.some(k => domainParts.some(d => d.includes(k) || k.includes(d)));
-        if (hit) {
-          const found = 'https://' + parsed.hostname;
-          return found;
+        const host = new URL(u).hostname.replace(/^www\./, '');
+        if (SKIP.test(host)) continue;
+        const parts = host.split(/[.\-]/);
+        if (keywords.some(k => parts.some(p => p.includes(k) || k.includes(p)))) {
+          return 'https://www.' + new URL(u).hostname.replace(/^www\./, '');
         }
       } catch {}
     }
-    // Fallback: if no keyword match, try first non-skipped result
-    for (const u of urlMatches) {
+    // 2nd pass: first non-skipped result
+    for (const u of urlArr) {
       try {
-        const parsed = new URL(u);
-        if (!SKIP.test(parsed.hostname)) {
-          const found = 'https://' + parsed.hostname;
-          return found;
+        const host = new URL(u).hostname;
+        if (!SKIP.test(host)) {
+          return 'https://www.' + host.replace(/^www\./, '');
         }
       } catch {}
     }
     return null;
   } catch (e) {
+    console.log('DDG error:', e.message);
     return null;
   }
 }
 
-// find-contact.js
-// Priority: 1) jobText (Stellenanzeige)  2) Website scraping (nur wenn echte URL bekannt)
-// NEVER invent contacts - only real people from real sources
-
+// ── Main handler ───────────────────────────────────────────────────────────
 export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate');
@@ -83,10 +106,15 @@ export default async function handler(req, res) {
     const all = [...text.matchAll(/[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}/g)]
       .map(m => m[0]).filter(e => !SKIP_EMAIL.test(e));
     if (!all.length) return null;
-    // Upgrade priority: HR > personal > generic
-    return all.find(e => HR_EMAIL.test(e))
-        || all.find(e => !GENERIC.test(e))
-        || all[0];
+    return all.find(e => HR_EMAIL.test(e)) || all.find(e => !GENERIC.test(e)) || all[0];
+  }
+
+  function upgradeEmail(current, candidate) {
+    if (!candidate) return current;
+    if (!current) return candidate;
+    if (HR_EMAIL.test(candidate) && !HR_EMAIL.test(current)) return candidate;
+    if (!GENERIC.test(candidate) && GENERIC.test(current)) return candidate;
+    return current;
   }
 
   function bestPhone(text) {
@@ -94,22 +122,16 @@ export default async function handler(req, res) {
     return m ? m[1].trim().replace(/\s+/g, ' ') : null;
   }
 
-  // Words that must never appear as first or last name
   const BLACKLIST = new Set([
-    // Generic/nav words
     'Downloads','Karriere','Jobs','Kontakt','Impressum','Datenschutz','Login',
     'Home','News','Service','Produkte','Ausbildung','Bewerbung','Team','Info',
     'Unternehmen','Leistungen','Referenzen','Partner','Blog','Presse','Stellenangebote',
-    // Geographic / institutional
-    'Landkreis','Kreis','Stadt','Gemeinde','Bundesland','Bezirk','Region','Verwaltung',
+    'Landkreis','Kreis','Stadt','Gemeinde','Bundesland','Bezirk','Region',
     'Amtsgericht','Handelsregister','Deutschland','Germany','Bayern','Berlin',
     'Hamburg','München','Frankfurt','Köln','Stuttgart','Hannover','Düsseldorf',
     'Krefeld','Dortmund','Dresden','Leipzig','Bremen','Essen','Duisburg',
-    // Articles / pronouns that appear before names
     'Der','Die','Das','Den','Dem','Ein','Eine','Ihr','Ihre','Unser','Unsere',
-    // Company types
     'GmbH','AG','KG','SE','OHG','UG','Dienstleistungen','Management',
-    // Departments
     'Vertrieb','Marketing','Personal','Recruiting','Einkauf','Buchhaltung',
     'Controlling','Produktion','Technik','Entwicklung','Forschung','Logistik',
     'Verwaltung','Sekretariat','Empfang','Assistenz','Beratung','Support',
@@ -174,130 +196,118 @@ export default async function handler(req, res) {
   }
 
   const fetchPage = async (url) => {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 2500);
     try {
       const r = await fetch(url, {
         headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36' },
-        signal: (() => { const c = new AbortController(); setTimeout(() => c.abort(), 2500); return c.signal; })(),
         redirect: 'follow',
+        signal: controller.signal,
       });
+      clearTimeout(timer);
       if (!r.ok) return null;
       return stripHtml(await r.text());
-    } catch { return null; }
+    } catch { clearTimeout(timer); return null; }
   };
 
+  let bestEmailFound = null;
+  let bestPhoneFound = null;
 
-  // ── Priority 0: Parse jobText from Stellenanzeige ─────────────────────────
+  // ── Priority 0: jobText (Stellenanzeige text) ────────────────────────────
   if (jobText) {
     const jt = decodeURIComponent(jobText).replace(/<[^>]+>/g,' ').replace(/\s+/g,' ');
-    const jtEmail = bestEmail(jt);
-    const jtPhone = bestPhone(jt);
+    bestEmailFound = upgradeEmail(bestEmailFound, bestEmail(jt));
+    bestPhoneFound = bestPhone(jt);
 
+    // HR pattern
     const hr = extractHR(jt);
     if (hr) {
       return res.status(200).json({
         firstName: hr.firstName, lastName: hr.lastName,
-        email: jtEmail, phone: jtPhone,
+        email: bestEmailFound, phone: bestPhoneFound,
         position: getHRPosition(jt), source: 'stellenanzeige', website: website || null,
       });
     }
     // Direct name patterns in job ads
-    const directPatterns = [
+    for (const p of [
       /(?:Ansprechpartner(?:in)?|Ihr Kontakt|Kontakt)[:\s]+([A-ZÄÖÜ][a-zA-ZäöüÄÖÜß\-]+)\s+([A-ZÄÖÜ][a-zA-ZäöüÄÖÜß\-]+)/i,
       /([A-ZÄÖÜ][a-zA-ZäöüÄÖÜß\-]+)\s+([A-ZÄÖÜ][a-zA-ZäöüÄÖÜß\-]+)\s*(?:ist Ihr|steht Ihnen|freut sich|beantwortet Ihre)/i,
-    ];
-    for (const p of directPatterns) {
+    ]) {
       const m = jt.match(p);
       if (m && isRealName(m[1], m[2])) {
         return res.status(200).json({
           firstName: m[1], lastName: m[2],
-          email: jtEmail, phone: jtPhone,
+          email: bestEmailFound, phone: bestPhoneFound,
           position: 'Ansprechpartner/in', source: 'stellenanzeige', website: website || null,
         });
       }
     }
-    // Email/phone only from job text
-    if (jtEmail || jtPhone) {
-      // Save for later as fallback
-    }
   }
 
-  // ── Priority 1+2: Website scraping ────────────────────────────────────────
+  // ── Priority 1: Known website ────────────────────────────────────────────
   let base = null;
   if (website) {
     base = website.startsWith('http') ? website.replace(/\/$/, '') : 'https://' + website;
-  } else {
-    // No known website → try DuckDuckGo to find the company website
-    base = await findWebsiteViaDDG(name);
-    if (!base) {
-      const fallbackEmail = jobText ? bestEmail(decodeURIComponent(jobText)) : null;
-      const fallbackPhone = jobText ? bestPhone(decodeURIComponent(jobText)) : null;
-      if (fallbackEmail) {
-        return res.status(200).json({ ...empty, email: fallbackEmail, phone: fallbackPhone });
-      }
-      return res.status(200).json(empty);
-    }
   }
 
+  // ── Priority 2: DuckDuckGo website lookup ────────────────────────────────
+  if (!base) {
+    base = await findWebsiteViaDDG(name);
+  }
 
+  // No website found at all → return email if any
+  if (!base) {
+    if (bestEmailFound) return res.status(200).json({ ...empty, email: bestEmailFound, phone: bestPhoneFound });
+    return res.status(200).json(empty);
+  }
 
-  // Fetch key pages in parallel
+  // ── Priority 3: Scrape known website ────────────────────────────────────
   const pages = [
-    { url: base + '/impressum',     type: 'impressum' },
-    { url: base + '/karriere',      type: 'career' },
-    { url: base + '/kontakt',       type: 'contact' },
-    { url: base,                    type: 'home' },
+    { url: base + '/impressum',    type: 'impressum' },
+    { url: base + '/karriere',     type: 'career' },
+    { url: base + '/kontakt',      type: 'contact' },
+    { url: base + '/jobs',         type: 'career' },
+    { url: base,                   type: 'home' },
   ];
 
-  const results = await Promise.all(
+  const pageResults = await Promise.all(
     pages.map(p => fetchPage(p.url).then(text => ({ ...p, text })))
   );
 
-  let bestEmailFound = jobText ? bestEmail(decodeURIComponent(jobText)) : null;
-  let bestPhoneFound = jobText ? bestPhone(decodeURIComponent(jobText)) : null;
   let ceoContact = null;
   let ceoSource = null;
 
-  for (const page of results) {
-    if (!page.text) continue;
-    const email = bestEmail(page.text);
-    const phone = bestPhone(page.text);
+  for (const page of pageResults) {
+    const text = page.text;
+    if (!text) continue;
+    const em = bestEmail(text);
+    const ph = bestPhone(text);
+    bestEmailFound = upgradeEmail(bestEmailFound, em);
+    if (ph && !bestPhoneFound) bestPhoneFound = ph;
 
-    // Upgrade email priority
-    if (email) {
-      if (!bestEmailFound) bestEmailFound = email;
-      else if (HR_EMAIL.test(email) && !HR_EMAIL.test(bestEmailFound)) bestEmailFound = email;
-      else if (!GENERIC.test(email) && GENERIC.test(bestEmailFound)) bestEmailFound = email;
-    }
-    if (phone && !bestPhoneFound) bestPhoneFound = phone;
-
-    // HR contact (highest priority)
-    const hr = extractHR(page.text);
+    const hr = extractHR(text);
     if (hr) {
       return res.status(200).json({
         firstName: hr.firstName, lastName: hr.lastName,
-        email: bestEmailFound || email, phone: bestPhoneFound || phone,
-        position: getHRPosition(page.text), source: page.url.replace(base,'') || 'homepage',
+        email: bestEmailFound || em, phone: bestPhoneFound || ph,
+        position: getHRPosition(text), source: page.url.replace(base,'') || 'homepage',
         website: base,
       });
     }
-
-    // CEO fallback
     if (!ceoContact) {
-      const ceo = extractCEO(page.text);
+      const ceo = extractCEO(text);
       if (ceo) { ceoContact = ceo; ceoSource = page.url.replace(base,'') || 'homepage'; }
     }
   }
 
   if (ceoContact) {
-    const pos = ceoSource?.includes('impressum') ? 'Geschäftsführer/in' : 'Ansprechpartner/in';
     return res.status(200).json({
       firstName: ceoContact.firstName, lastName: ceoContact.lastName,
       email: bestEmailFound, phone: bestPhoneFound,
-      position: pos, source: ceoSource, website: base,
+      position: 'Geschäftsführer/in', source: ceoSource, website: base,
     });
   }
 
-  // Email-only fallback
   if (bestEmailFound) {
     return res.status(200).json({ ...empty, email: bestEmailFound, phone: bestPhoneFound, website: base });
   }
