@@ -145,12 +145,13 @@ export default async function handler(req, res) {
 
     if (!firstToken || firstToken.length < 2) return res.status(200).json(result);
 
-    // Use two-word slug if first word is too short (e.g. "next" → use "next-2m")
-    const primaryBase = firstToken.length >= 4 ? firstToken : twoWords;
-    const secondaryBase = primaryBase === twoWords ? firstToken : (twoWords !== primaryBase ? twoWords : null);
+    // Primary: twoWords (e.g. "august-storck", "next-2m", "ibu-tec")
+    // Alt: firstToken alone as fallback
+    const primary = twoWords.length > firstToken.length ? twoWords : firstToken;
+    const secondary = primary === twoWords && firstToken !== twoWords ? firstToken : null;
 
-    base = 'https://www.' + primaryBase + '.de';
-    result._altBase2 = secondaryBase && secondaryBase !== primaryBase ? 'https://www.' + secondaryBase + '.de' : null;
+    base = 'https://www.' + primary + '.de';
+    result._altBase2 = secondary ? 'https://www.' + secondary + '.de' : null;
   }
   result.website = base;
 
