@@ -159,7 +159,7 @@ export default async function handler(req, res) {
     try {
       const r = await fetch(url, {
         headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36' },
-        signal: AbortSignal.timeout(4000),
+        signal: AbortSignal.timeout(2500),
         redirect: 'follow',
       });
       if (!r.ok) return null;
@@ -172,30 +172,32 @@ export default async function handler(req, res) {
   const altBase = result._altBase || result._altBase2;
   delete result._altBase;
   delete result._altBase2;
-  const pages = [
-    { url: base + '/karriere',        type: 'career' },
-    { url: base + '/jobs',            type: 'career' },
-    { url: base + '/stellenangebote', type: 'career' },
-    { url: base + '/kontakt',         type: 'contact' },
-    { url: base + '/ueber-uns',       type: 'contact' },
-    { url: base + '/team',            type: 'contact' },
+  // Fetch impressum + karriere in parallel for speed, then contact page
+  // Vercel has 10s limit - keep total well under that
+  const basePages = [
     { url: base + '/impressum',       type: 'impressum' },
+    { url: base + '/karriere',        type: 'career' },
+    { url: base + '/kontakt',         type: 'contact' },
     { url: base,                      type: 'home' },
-    // Try alt base (two-word slug) as fallback
-    ...(altBase ? [
-      { url: altBase + '/karriere',   type: 'career' },
-      { url: altBase + '/kontakt',    type: 'contact' },
-      { url: altBase + '/impressum',  type: 'impressum' },
-      { url: altBase,                 type: 'home' },
-    ] : []),
   ];
+  const altPages = altBase ? [
+    { url: altBase + '/impressum',    type: 'impressum' },
+    { url: altBase + '/karriere',     type: 'career' },
+    { url: altBase,                   type: 'home' },
+  ] : [];
+  const pages = [...basePages, ...altPages];
 
   let ceoContact = null;
   let bestEmailFound = null;
   let bestPhoneFound = null;
 
-  for (const page of pages) {
-    const text = await fetchPage(page.url);
+  // Fetch all pages in parallel for speed (Vercel 10s limit)
+  const pageResults = await Promise.all(
+    pages.map(page => fetchPage(page.url).then(text => ({ ...page, text })))
+  );
+
+  for (const page of pageResults) {
+    const text = page.text;
     if (!text) continue;
 
     const email = bestEmail(text);
@@ -205,9 +207,9 @@ export default async function handler(req, res) {
       if (!bestEmailFound) {
         bestEmailFound = email;
       } else if (HR_EMAIL.test(email) && !HR_EMAIL.test(bestEmailFound)) {
-        bestEmailFound = email; // upgrade: found HR email, had generic before
+        bestEmailFound = email;
       } else if (!GENERIC.test(email) && GENERIC.test(bestEmailFound)) {
-        bestEmailFound = email; // upgrade: found personal email, had generic before
+        bestEmailFound = email;
       }
     }
     if (phone && !bestPhoneFound) bestPhoneFound = phone;
