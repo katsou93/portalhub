@@ -259,6 +259,7 @@ export default async function handler(req, res) {
   }
 
   // No website found at all → return email if any
+  console.log('find-contact: base=', base, 'name=', name);
   if (!base) {
     if (bestEmailFound) return res.status(200).json({ ...empty, email: bestEmailFound, phone: bestPhoneFound });
     return res.status(200).json(empty);
