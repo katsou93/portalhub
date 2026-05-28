@@ -69,7 +69,10 @@ export default async function handler(req, res) {
     const { name } = req.body || {};
     if (!name) return res.status(400).json({ error: 'name required' });
     try {
-      const existing = await kvGet(KV_KEY) || [];
+      const rawExisting = await kvGet(KV_KEY) || [];
+    const existing = Array.isArray(rawExisting)
+      ? rawExisting.filter(n => typeof n === 'string' && n.length > 3)
+      : [];
       if (!existing.includes(name)) {
         existing.unshift(name);
         await kvSet(KV_KEY, existing);
@@ -82,7 +85,11 @@ export default async function handler(req, res) {
 
   // GET: return our KV list + Vincere's search index (first page)
   try {
-    const kvNames = await kvGet(KV_KEY) || [];
+    const rawKv = await kvGet(KV_KEY) || [];
+    // Filter out garbage entries from old double-stringify bug (single chars, null, "[", "]")
+    const kvNames = Array.isArray(rawKv)
+      ? rawKv.filter(n => typeof n === 'string' && n.length > 3 && !['[null]'].includes(n))
+      : [];
 
     // Also get first 100 from Vincere search (for existing pre-portalhub companies)
     const vincereNames = [];

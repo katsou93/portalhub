@@ -102,7 +102,10 @@ export default async function handler(req, res) {
           headers: { Authorization: `Bearer ${kvToken}` }
         });
         const getData = await getR.json();
-        const existing = getData.result ? JSON.parse(getData.result) : [];
+        const rawParsed = getData.result ? JSON.parse(getData.result) : [];
+        const existing = Array.isArray(rawParsed)
+          ? rawParsed.filter(n => typeof n === 'string' && n.length > 3)
+          : [];
         if (!existing.includes(compData.company_name)) {
           existing.unshift(compData.company_name);
           await fetch(`${kvUrl}/set/${encodeURIComponent(KV_KEY)}`, {
