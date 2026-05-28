@@ -9,7 +9,12 @@ async function kvGet(key) {
   });
   if (!r.ok) return null;
   const d = await r.json();
-  return d.result ? JSON.parse(d.result) : null;
+  if (!d.result) return null;
+  if (Array.isArray(d.result)) return d.result;             // already array
+  if (typeof d.result === 'string') {
+    try { return JSON.parse(d.result); } catch { return null; }
+  }
+  return null;
 }
 
 async function kvSet(key, value) {

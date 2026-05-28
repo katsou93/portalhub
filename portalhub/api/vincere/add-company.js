@@ -102,7 +102,13 @@ export default async function handler(req, res) {
           headers: { Authorization: `Bearer ${kvToken}` }
         });
         const getData = await getR.json();
-        const rawParsed = getData.result ? JSON.parse(getData.result) : [];
+        let rawParsed = [];
+        if (getData.result) {
+          if (Array.isArray(getData.result)) rawParsed = getData.result;
+          else if (typeof getData.result === 'string') {
+            try { rawParsed = JSON.parse(getData.result); } catch {}
+          }
+        }
         const existing = Array.isArray(rawParsed)
           ? rawParsed.filter(n => typeof n === 'string' && n.length > 3)
           : [];
