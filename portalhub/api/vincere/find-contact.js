@@ -78,17 +78,17 @@ export default async function handler(req, res) {
   // Extract contact from text - HR first, then CEO/Geschäftsführer
   function extractHR(text) {
     const HR_PATTERNS = [
-      // "Ansprechpartner: Max Mustermann"
       /(?:Ansprechpartner(?:in)?|Kontaktperson|Bei\s+Fragen)[:\s]+([A-ZÄÖÜ][a-zA-ZäöüÄÖÜß\-]+)\s+([A-ZÄÖÜ][a-zA-ZäöüÄÖÜß\-]+)/,
-      // "Max Mustermann, HR Manager"
       /([A-ZÄÖÜ][a-zA-ZäöüÄÖÜß\-]+)\s+([A-ZÄÖÜ][a-zA-ZäöüÄÖÜß\-]+)[,\s]+(?:HR|Personal(?:referent|referentin|leiter|leiterin|manager|managerin)|Recruiting(?:erin?)?)/,
-      // "HR Manager: Max Mustermann"
       /(?:HR|Personal(?:referent|referentin|leiter|leiterin|manager|managerin)|Recruiting(?:erin?)?)[:\s,]+([A-ZÄÖÜ][a-zA-ZäöüÄÖÜß\-]+)\s+([A-ZÄÖÜ][a-zA-ZäöüÄÖÜß\-]+)/,
+      // "Leiter Personal: Max Mustermann"
+      /(?:Leiter(?:in)?\s+Personal|Head\s+of\s+HR|Personalverantwortlich)[:\s]+([A-ZÄÖÜ][a-zA-ZäöüÄÖÜß\-]+)\s+([A-ZÄÖÜ][a-zA-ZäöüÄÖÜß\-]+)/,
     ];
     for (const p of HR_PATTERNS) {
-      const m = text.match(p);
-      if (m && isRealName(m[1], m[2])) {
-        return { firstName: m[1], lastName: m[2], type: 'hr' };
+      for (const m of text.matchAll(new RegExp(p.source, p.flags + 'g'))) {
+        if (isRealName(m[1], m[2])) {
+          return { firstName: m[1], lastName: m[2], type: 'hr' };
+        }
       }
     }
     return null;
@@ -96,13 +96,20 @@ export default async function handler(req, res) {
 
   function extractCEO(text) {
     const CEO_PATTERNS = [
-      /(?:Geschäftsführer(?:in)?|CEO|Inhaber(?:in)?|Vorstand)[:\s]+([A-ZÄÖÜ][a-zA-ZäöüÄÖÜß\-]+)\s+([A-ZÄÖÜ][a-zA-ZäöüÄÖÜß\-]+)/,
-      /([A-ZÄÖÜ][a-zA-ZäöüÄÖÜß\-]+)\s+([A-ZÄÖÜ][a-zA-ZäöüÄÖÜß\-]+)[,\s]+(?:Geschäftsführer(?:in)?|CEO|Inhaber(?:in)?)/,
+      // "Geschäftsführer: Max Mustermann" or "CEO: Max Mustermann"
+      /(?:Geschäftsführer(?:in)?|CEO|Inhaber(?:in)?|Vorstand(?:svorsitzender)?|Verantwortlich(?:er)?)[:\s]+([A-ZÄÖÜ][a-zA-ZäöüÄÖÜß\-]{1,24})\s+([A-ZÄÖÜ][a-zA-ZäöüÄÖÜß\-]{1,29})/,
+      // "Max Mustermann, Geschäftsführer"
+      /([A-ZÄÖÜ][a-zA-ZäöüÄÖÜß\-]{1,24})\s+([A-ZÄÖÜ][a-zA-ZäöüÄÖÜß\-]{1,29})[,\s]+(?:Geschäftsführer(?:in)?|CEO|Inhaber(?:in)?)/,
+      // "vertreten durch Max Mustermann"
+      /(?:vertreten\s+durch|represented\s+by)[:\s]+([A-ZÄÖÜ][a-zA-ZäöüÄÖÜß\-]{1,24})\s+([A-ZÄÖÜ][a-zA-ZäöüÄÖÜß\-]{1,29})/i,
+      // "Max Mustermann (Geschäftsführer)"
+      /([A-ZÄÖÜ][a-zA-ZäöüÄÖÜß\-]{1,24})\s+([A-ZÄÖÜ][a-zA-ZäöüÄÖÜß\-]{1,29})\s*\((?:Geschäftsführer(?:in)?|CEO|Inhaber(?:in)?)\)/,
     ];
     for (const p of CEO_PATTERNS) {
-      const m = text.match(p);
-      if (m && isRealName(m[1], m[2])) {
-        return { firstName: m[1], lastName: m[2], type: 'ceo' };
+      for (const m of text.matchAll(new RegExp(p.source, p.flags + 'g'))) {
+        if (isRealName(m[1], m[2])) {
+          return { firstName: m[1], lastName: m[2], type: 'ceo' };
+        }
       }
     }
     return null;
