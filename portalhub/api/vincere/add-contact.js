@@ -71,6 +71,31 @@ export default async function handler(req, res) {
   }
 
   try {
+    // Check if contact already exists for this company (avoid duplicates)
+    const searchQuery = email
+      ? `email:${email}`
+      : `${payload.first_name || ''} ${payload.last_name || ''}`.trim();
+    if (searchQuery) {
+      const checkUrl = `https://${tenant}.vincere.io/api/v2/contact/search/fl=id,email,name?keyword=${encodeURIComponent(searchQuery)}&rows=5`;
+      const checkR = await fetch(checkUrl, { headers: h }).catch(() => null);
+      if (checkR && checkR.ok) {
+        const checkData = await checkR.json().catch(() => ({}));
+        const existing = (checkData.result?.items || []).find(c => {
+          if (email && c.email === email) return true;
+          if (payload.first_name && payload.last_name) {
+            const fullName = `${c.first_name || ''} ${c.last_name || ''}`.toLowerCase();
+            const newName = `${payload.first_name} ${payload.last_name}`.toLowerCase();
+            if (fullName.trim() === newName.trim()) return true;
+          }
+          return false;
+        });
+        if (existing) {
+          console.log('Contact already exists:', existing.id);
+          return res.status(200).json({ ok: true, id: existing.id, name: existing.name, existing: true });
+        }
+      }
+    }
+
     const r = await fetch(`https://${tenant}.vincere.io/api/v2/contact`, {
       method: 'POST', headers: h,
       body: JSON.stringify(payload),
