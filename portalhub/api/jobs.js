@@ -45,6 +45,10 @@ export default async function handler(req, res) {
         kontaktAngaben: stelle.kontaktAngaben || null,
         arbeitgeberHomepage: stelle.arbeitgeberHomepage || null,
         stellenbeschreibung: stelle.stellenbeschreibung || null,
+        // Extra fields that may contain contact info
+        ansprechpartner: stelle.ansprechpartner || null,
+        bewerbungsinfos: stelle.bewerbungsinfos || null,
+        firmeninfo: stelle.firmeninfo || null,
       });
     }
 
