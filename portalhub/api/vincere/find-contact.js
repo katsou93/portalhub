@@ -2,91 +2,69 @@
 // Priority: 1) jobText  2) Website (if known)  3) DuckDuckGo → Website  4) null
 // NEVER invent contacts. Only real people from real sources.
 
-// ── DuckDuckGo: find company website ───────────────────────────────────────
-async function findWebsiteViaDDG(companyName) {
-  try {
-    const query = '"' + companyName + '" Impressum';
+// ── Domain prober: find company website by testing candidate domains ─────────
+// Derives candidates from company name and probes them with a HEAD request
+async function findWebsiteByProbing(companyName) {
+  // Normalize company name to domain-safe string
+  const norm = companyName.toLowerCase()
+    .replace(/gmbh\s*&\s*co\.?\s*kg|gmbh\s*&\s*co|gmbh|grp\.|group|\bag\b|\bse\b|\bkg\b|e\.v\.|ohg|\bug\b/gi, '')
+    .replace(/niederlassung\s+\w+/gi, '')
+    .replace(/ä/g,'ae').replace(/ö/g,'oe').replace(/ü/g,'ue').replace(/ß/g,'ss')
+    .replace(/[^a-z0-9\s\-]/g, ' ').replace(/\s+/g, '-').replace(/^-+|-+$/g, '');
+
+  const words = norm.split('-').filter(w => w.length > 0);
+  if (!words.length) return null;
+
+  // Build candidate domains from most specific to least specific
+  const candidates = new Set();
+  // Full name slug (up to 4 words)
+  const fullSlug = words.slice(0, 4).join('-');
+  candidates.add(fullSlug);
+  // First 3 words
+  if (words.length > 3) candidates.add(words.slice(0, 3).join('-'));
+  // First 2 words
+  if (words.length > 2) candidates.add(words.slice(0, 2).join('-'));
+  // First word (if >= 4 chars)
+  if (words[0]?.length >= 4) candidates.add(words[0]);
+
+  const tlds = ['.de', '.com', '.de'];
+  const probes = [];
+  for (const slug of candidates) {
+    probes.push('https://www.' + slug + '.de');
+    probes.push('https://' + slug + '.de');
+    if (slug.length <= 12) probes.push('https://www.' + slug + '.com');
+  }
+
+  // Probe all candidates in parallel (HEAD request = very fast)
+  const probe = async (url) => {
     const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), 6000);
-    let r;
+    const timer = setTimeout(() => controller.abort(), 2000);
     try {
-      r = await fetch('https://html.duckduckgo.com/html/', {
-        method: 'POST',
-        headers: {
-          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-          'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-          'Accept-Language': 'de-DE,de;q=0.9',
-          'Content-Type': 'application/x-www-form-urlencoded',
-          'Origin': 'https://duckduckgo.com',
-          'Referer': 'https://duckduckgo.com/',
-        },
-        body: 'q=' + encodeURIComponent(query) + '&kl=de-de',
+      const r = await fetch(url, {
+        method: 'HEAD',
+        headers: { 'User-Agent': 'Mozilla/5.0' },
+        redirect: 'follow',
         signal: controller.signal,
       });
-    } finally {
       clearTimeout(timer);
-    }
-    if (!r || !r.ok) return null;
-    const html = await r.text();
-    if (html.length < 500) return null;
+      if (r.ok || r.status === 405) {
+        // 405 = Method Not Allowed = server exists, just doesn't support HEAD
+        return { url, finalUrl: r.url || url, ok: true };
+      }
+      return null;
+    } catch { clearTimeout(timer); return null; }
+  };
 
-    // DDG HTML 4.01 format: URLs in uddg= param OR in href of result links
-    const candidates = new Set();
-
-    // Pattern 1: uddg= encoded URLs
-    for (const m of html.matchAll(/uddg=([^"&\s]+)/g)) {
-      try { candidates.add(decodeURIComponent(m[1])); } catch {}
-    }
-    // Pattern 2: result__url or result__a links
-    for (const m of html.matchAll(/href="(https?:\/\/[^"]+)"/g)) {
-      candidates.add(m[1]);
-    }
-    // Pattern 3: result snippet URLs (text that looks like domain)
-    for (const m of html.matchAll(/class="result__url[^>]*>([^<]+)</g)) {
-      const u = m[1].trim();
-      if (u && !u.includes(' ')) candidates.add('https://' + u.replace(/^https?:\/\//, ''));
-    }
-
-    // Keywords from company name (without legal suffix)
-    // Normalize umlauts so "frischgeflügel" matches "frischgefluegel"
-    const normalizeUmlauts = s => s
-      .replace(/ä/g,'ae').replace(/ö/g,'oe').replace(/ü/g,'ue').replace(/ß/g,'ss');
-    const keywords = normalizeUmlauts(companyName.toLowerCase())
-      .replace(/gmbh\s*&\s*co\.?\s*kg|gmbh\s*&\s*co|gmbh|grp\.|group|\bag\b|\bse\b|\bkg\b|e\.v\.|ohg|\bug\b/gi, '')
-      .replace(/[^a-z0-9]/g, ' ').trim()
-      .split(/\s+/).filter(w => w.length > 3);
-
-    const SKIP = /linkedin|xing|facebook|instagram|kununu|stepstone|indeed|monster|arbeitsagentur|wikipedia|youtube|twitter|tiktok|google\.com|bing\.com|yahoo|wlw\.de|firmenwissen|northdata|handelsregister|opencorporates|dnb\.com|duckduckgo|amazon|ebay/i;
-
-    const urlArr = Array.from(candidates).filter(u => {
-      try { return u.startsWith('http'); } catch { return false; }
-    });
-
-    // 1st pass: keyword match
-    for (const u of urlArr) {
-      try {
-        const host = new URL(u).hostname.replace(/^www\./, '');
-        if (SKIP.test(host)) continue;
-        const parts = host.split(/[.\-]/);
-        if (keywords.some(k => parts.some(p => p.includes(k) || k.includes(p)))) {
-          return 'https://www.' + new URL(u).hostname.replace(/^www\./, '');
-        }
-      } catch {}
-    }
-    // 2nd pass: first non-skipped result
-    for (const u of urlArr) {
-      try {
-        const host = new URL(u).hostname;
-        if (!SKIP.test(host)) {
-          return 'https://www.' + host.replace(/^www\./, '');
-        }
-      } catch {}
-    }
-    return null;
-  } catch (e) {
-    console.log('DDG error:', e.message);
-    return null;
+  const results = await Promise.all([...new Set(probes)].map(probe));
+  const found = results.find(r => r?.ok);
+  if (found) {
+    try {
+      const host = new URL(found.finalUrl).hostname;
+      return 'https://' + host;
+    } catch {}
+    return found.url;
   }
+  return null;
 }
 
 // ── Main handler ───────────────────────────────────────────────────────────
@@ -255,7 +233,7 @@ export default async function handler(req, res) {
 
   // ── Priority 2: DuckDuckGo website lookup ────────────────────────────────
   if (!base) {
-    base = await findWebsiteViaDDG(name);
+    base = await findWebsiteByProbing(name);
   }
 
   // No website found at all → return email if any
