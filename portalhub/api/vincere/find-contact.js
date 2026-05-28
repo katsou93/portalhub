@@ -6,7 +6,7 @@ export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
   if (req.method === 'OPTIONS') return res.status(200).end();
 
-  const { name, city, website } = req.query;
+  const { name, city, website, jobText } = req.query;
   if (!name) return res.status(400).json({ error: 'name required' });
 
   const result = {
@@ -190,6 +190,49 @@ export default async function handler(req, res) {
   let ceoContact = null;
   let bestEmailFound = null;
   let bestPhoneFound = null;
+
+  // Priority 0: Parse jobText from BA listing (contains contact info as plain text)
+  if (jobText) {
+    const jt = decodeURIComponent(jobText).replace(/<[^>]+>/g, ' ').replace(/\s+/g,' ');
+    
+    const jtEmail = bestEmail(jt);
+    const jtPhone = bestPhone(jt);
+    if (jtEmail) bestEmailFound = jtEmail;
+    if (jtPhone) bestPhoneFound = jtPhone;
+
+    // Look for contact name in jobText
+    const jtHR = extractHR(jt);
+    if (jtHR) {
+      return res.status(200).json({
+        firstName: jtHR.firstName,
+        lastName:  jtHR.lastName,
+        email:     bestEmailFound,
+        phone:     bestPhoneFound,
+        position:  getPosition('hr', jt),
+        source:    'stellenanzeige',
+        website:   base || null,
+      });
+    }
+    // Also try direct name patterns from job listings
+    const directPatterns = [
+      /(?:Ansprechpartner(?:in)?|Kontakt(?:person)?|Ihr Kontakt)[:\s]+([A-ZÄÖÜ][a-zA-ZäöüÄÖÜß\-]+)\s+([A-ZÄÖÜ][a-zA-ZäöüÄÖÜß\-]+)/i,
+      /([A-ZÄÖÜ][a-zA-ZäöüÄÖÜß\-]+)\s+([A-ZÄÖÜ][a-zA-ZäöüÄÖÜß\-]+)\s*(?:ist Ihr|ist Ihre|freut sich|steht Ihnen|beantwortet)/i,
+    ];
+    for (const p of directPatterns) {
+      const m = jt.match(p);
+      if (m && isRealName(m[1], m[2])) {
+        return res.status(200).json({
+          firstName: m[1],
+          lastName:  m[2],
+          email:     bestEmailFound,
+          phone:     bestPhoneFound,
+          position:  'Ansprechpartner/in',
+          source:    'stellenanzeige',
+          website:   base || null,
+        });
+      }
+    }
+  }
 
   // Fetch all pages in parallel for speed (Vercel 10s limit)
   const pageResults = await Promise.all(

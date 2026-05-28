@@ -664,8 +664,9 @@ export default function App() {
               if(baDetail.arbeitgeberHomepage && !website && companyId){
                 addToVincere(name, city, postcode, baDetail.arbeitgeberHomepage).catch(()=>{});
               }
-              // Use BA website as fallback for scraping
+              // Use BA website and description as fallback
               if(!website && baDetail.arbeitgeberHomepage) website = baDetail.arbeitgeberHomepage;
+              if(!jobText && baDetail.stellenbeschreibung) jobText = baDetail.stellenbeschreibung.substring(0,1000);
             }
           }
 
@@ -673,6 +674,7 @@ export default function App() {
           if(!contact){
             const params = new URLSearchParams({name, city:city||''});
             if(website) params.set('website', website);
+            if(jobText) params.set('jobText', encodeURIComponent(jobText));
             const r = await fetch('/api/vincere/find-contact?'+params);
             if(r.ok){
               const d = await r.json();
