@@ -53,15 +53,14 @@ export default async function handler(req, res) {
           });
           if (pageR.ok) {
             const html = await pageR.text();
-            // Extract contact from HTML - BA uses specific patterns
-            const nameMatch = html.match(/(?:Ansprechpartner(?:in)?|Ihr Kontakt)[^<]*<[^>]+>([^<]+)<\/|(?:Ansprechpartner(?:in)?):\s*([A-ZÄÖÜ][a-zA-ZäöüÄÖÜß\s\-\.]{3,40}?)(?:<|
-)/i);
+            // Extract contact from HTML - simple patterns
             const emailMatch = html.match(/href="mailto:([^"]+)"/i);
-            const phoneMatch = html.match(/(?:Tel(?:efon|\.)?|Fon)[:\s]+([+\d][\d\s()\-\/]{6,20})/i);
+            const phoneMatch = html.match(/(?:Telefon|Tel\.)[:\s]+([+0-9][\d\s()\-/]{6,20})/i);
+            // Name: look for "Ansprechpartner" followed by a name
+            const nameMatch = html.match(/Ansprechpartner[^:]*:\s*([A-Z][a-zA-ZäöüÄÖÜß\-]+ [A-Z][a-zA-ZäöüÄÖÜß\-]+)/);
             
             if (nameMatch || emailMatch) {
-              const rawName = (nameMatch?.[1] || nameMatch?.[2] || '').trim().replace(/\s+/g,' ');
-              const parts = rawName.split(/\s+/);
+              const rawName = (nameMatch?.[1] || '').trim();
               kontaktAngaben = {
                 ansprechpartner: rawName || null,
                 email: emailMatch?.[1] || null,
