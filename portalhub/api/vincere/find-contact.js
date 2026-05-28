@@ -35,34 +35,40 @@ async function findWebsiteByProbing(companyName) {
     if (slug.length <= 12) probes.push('https://www.' + slug + '.com');
   }
 
-  // Probe all candidates in parallel (HEAD request = very fast)
-  const probe = async (url) => {
+  // Validate that a URL's content actually belongs to this company
+  const validateDomain = async (url) => {
     const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), 2000);
+    const timer = setTimeout(() => controller.abort(), 2500);
     try {
       const r = await fetch(url, {
-        method: 'HEAD',
-        headers: { 'User-Agent': 'Mozilla/5.0' },
+        headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36' },
         redirect: 'follow',
         signal: controller.signal,
       });
       clearTimeout(timer);
-      if (r.ok || r.status === 405) {
-        // 405 = Method Not Allowed = server exists, just doesn't support HEAD
-        return { url, finalUrl: r.url || url, ok: true };
+      if (!r.ok) return null;
+      const text = (await r.text()).toLowerCase();
+      // Check that page mentions key words from company name
+      const hit = keywords.some(k => text.includes(k));
+      if (hit) {
+        const finalHost = new URL(r.url || url).hostname;
+        return 'https://' + finalHost;
       }
       return null;
     } catch { clearTimeout(timer); return null; }
   };
 
-  const results = await Promise.all([...new Set(probes)].map(probe));
-  const found = results.find(r => r?.ok);
-  if (found) {
-    try {
-      const host = new URL(found.finalUrl).hostname;
-      return 'https://' + host;
-    } catch {}
-    return found.url;
+  // Keywords from normalized name for validation
+  const keywords = norm.split('-').filter(w => w.length > 4);
+
+  // Try candidates from most specific to least specific (sequentially with early exit)
+  const uniqueProbes = [...new Set(probes)];
+  for (const url of uniqueProbes) {
+    const result = await validateDomain(url);
+    if (result) {
+      console.log('domain probe found:', result, 'for', companyName);
+      return result;
+    }
   }
   return null;
 }
