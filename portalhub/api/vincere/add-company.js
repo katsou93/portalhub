@@ -108,7 +108,7 @@ export default async function handler(req, res) {
           await fetch(`${kvUrl}/set/${encodeURIComponent(KV_KEY)}`, {
             method: 'POST',
             headers: { Authorization: `Bearer ${kvToken}`, 'Content-Type': 'application/json' },
-            body: JSON.stringify(JSON.stringify(existing))
+            body: JSON.stringify(existing)
           });
         }
       }
