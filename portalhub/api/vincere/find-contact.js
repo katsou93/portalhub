@@ -125,14 +125,17 @@ export default async function handler(req, res) {
   // ── DuckDuckGo website finder ─────────────────────────────────────────────
   async function findWebsiteViaDDG(companyName) {
     try {
-      const query = encodeURIComponent('"' + companyName + '" Impressum');
-      const r = await fetch('https://html.duckduckgo.com/html/?q=' + query, {
+      const searchQuery = '"' + companyName + '" Impressum';
+      const r = await fetch('https://html.duckduckgo.com/html/', {
+        method: 'POST',
         headers: {
           'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-          'Accept': 'text/html',
+          'Accept': 'text/html,application/xhtml+xml',
           'Accept-Language': 'de-DE,de;q=0.9',
+          'Content-Type': 'application/x-www-form-urlencoded',
         },
-        signal: AbortSignal.timeout(4000),
+        body: 'q=' + encodeURIComponent(searchQuery) + '&b=&kl=de-de',
+        signal: AbortSignal.timeout(5000),
       });
       if (!r.ok) return null;
       const html = await r.text();
