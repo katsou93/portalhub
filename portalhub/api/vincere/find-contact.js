@@ -1,79 +1,68 @@
 // find-contact.js — reliable contact finder
-// Priority: 1) jobText  2) Website (if known)  3) DuckDuckGo → Website  4) null
+// Priority: 1) jobText  2) Website (if known)  3) Domain probing  4) null
 // NEVER invent contacts. Only real people from real sources.
 
-// ── Domain prober: find company website by testing candidate domains ─────────
-// Derives candidates from company name and probes them with a HEAD request
-async function findWebsiteByProbing(companyName) {
-  // Normalize company name to domain-safe string
+// ── Domain prober ─────────────────────────────────────────────────────────
+async function findWebsiteByProbing(companyName, city) {
   const norm = companyName.toLowerCase()
     .replace(/gmbh\s*&\s*co\.?\s*kg|gmbh\s*&\s*co|gmbh|grp\.|group|\bag\b|\bse\b|\bkg\b|e\.v\.|ohg|\bug\b/gi, '')
     .replace(/niederlassung\s+\w+/gi, '')
     .replace(/ä/g,'ae').replace(/ö/g,'oe').replace(/ü/g,'ue').replace(/ß/g,'ss')
-    .replace(/[^a-z0-9\s\-]/g, ' ').replace(/\s+/g, '-').replace(/^-+|-+$/g, '');
+    .replace(/[^a-z0-9\s]/g, ' ').replace(/\s+/g, '-').replace(/^-+|-+$/g, '');
 
   const words = norm.split('-').filter(w => w.length > 0);
   if (!words.length) return null;
 
-  // Build candidate domains from most specific to least specific
-  const candidates = new Set();
-  // Full name slug (up to 4 words)
-  const fullSlug = words.slice(0, 4).join('-');
-  candidates.add(fullSlug);
-  // First 3 words
-  if (words.length > 3) candidates.add(words.slice(0, 3).join('-'));
-  // First 2 words
-  if (words.length > 2) candidates.add(words.slice(0, 2).join('-'));
-  // First word (if >= 4 chars)
-  if (words[0]?.length >= 4) candidates.add(words[0]);
+  // Validation keywords: company name words > 4 chars + city
+  const nameKeywords = words.filter(w => w.length > 4);
+  const cityNorm = city ? city.toLowerCase()
+    .replace(/ä/g,'ae').replace(/ö/g,'oe').replace(/ü/g,'ue').replace(/ß/g,'ss')
+    .replace(/[^a-z0-9]/g,' ').trim() : '';
 
-  const tlds = ['.de', '.com', '.de'];
+  // Build candidate slugs from most to least specific
+  const slugs = new Set();
+  slugs.add(words.slice(0,4).join('-'));
+  if (words.length > 3) slugs.add(words.slice(0,3).join('-'));
+  if (words.length > 2) slugs.add(words.slice(0,2).join('-'));
+  if (words[0]?.length >= 3) slugs.add(words[0]);
+
   const probes = [];
-  for (const slug of candidates) {
+  for (const slug of slugs) {
     probes.push('https://www.' + slug + '.de');
     probes.push('https://' + slug + '.de');
-    if (slug.length <= 12) probes.push('https://www.' + slug + '.com');
   }
 
-  // Validate that a URL's content actually belongs to this company
-  const validateDomain = async (url) => {
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), 2500);
+  // Validate domain: content must mention company keywords AND optionally city
+  const validate = async (url) => {
+    const ctrl = new AbortController();
+    const t = setTimeout(() => ctrl.abort(), 3000);
     try {
       const r = await fetch(url, {
         headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36' },
-        redirect: 'follow',
-        signal: controller.signal,
+        redirect: 'follow', signal: ctrl.signal,
       });
-      clearTimeout(timer);
+      clearTimeout(t);
       if (!r.ok) return null;
       const text = (await r.text()).toLowerCase();
-      // Check that page mentions key words from company name
-      const hit = keywords.some(k => text.includes(k));
-      if (hit) {
-        const finalHost = new URL(r.url || url).hostname;
-        return 'https://' + finalHost;
-      }
+      // Must mention ALL name keywords (avoid false positives)
+      const nameMatch = nameKeywords.every(k => text.includes(k));
+      // Bonus: also check city
+      const cityMatch = cityNorm && cityNorm.length > 3 ? text.includes(cityNorm) : true;
+      if (nameMatch && cityMatch) return 'https://' + new URL(r.url || url).hostname;
+      if (nameMatch && !cityNorm) return 'https://' + new URL(r.url || url).hostname;
       return null;
-    } catch { clearTimeout(timer); return null; }
+    } catch { clearTimeout(t); return null; }
   };
 
-  // Keywords from normalized name for validation
-  const keywords = norm.split('-').filter(w => w.length > 4);
-
-  // Try candidates from most specific to least specific (sequentially with early exit)
-  const uniqueProbes = [...new Set(probes)];
-  for (const url of uniqueProbes) {
-    const result = await validateDomain(url);
-    if (result) {
-      console.log('domain probe found:', result, 'for', companyName);
-      return result;
-    }
+  // Try sequentially from most specific to least
+  for (const url of [...new Set(probes)]) {
+    const result = await validate(url);
+    if (result) { console.log('probe found:', result); return result; }
   }
   return null;
 }
 
-// ── Main handler ───────────────────────────────────────────────────────────
+// ── Main handler ──────────────────────────────────────────────────────────
 export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate');
@@ -84,7 +73,6 @@ export default async function handler(req, res) {
 
   const empty = { firstName:null, lastName:null, email:null, phone:null, position:null, source:null, website:null };
 
-  // ── Helpers ──────────────────────────────────────────────────────────────
   const HR_EMAIL   = /(?:bewerbung|hr|personal|karriere|recruiting|jobs|talent)@/i;
   const SKIP_EMAIL = /^(noreply|no-reply|donotreply|bounce|mailer-daemon)@/i;
   const GENERIC    = /^(info|kontakt|post|mail|office|hallo|hello|support|service|sales|vertrieb)@/i;
@@ -96,17 +84,17 @@ export default async function handler(req, res) {
     return all.find(e => HR_EMAIL.test(e)) || all.find(e => !GENERIC.test(e)) || all[0];
   }
 
-  function upgradeEmail(current, candidate) {
-    if (!candidate) return current;
-    if (!current) return candidate;
-    if (HR_EMAIL.test(candidate) && !HR_EMAIL.test(current)) return candidate;
-    if (!GENERIC.test(candidate) && GENERIC.test(current)) return candidate;
-    return current;
+  function upgradeEmail(cur, cand) {
+    if (!cand) return cur;
+    if (!cur) return cand;
+    if (HR_EMAIL.test(cand) && !HR_EMAIL.test(cur)) return cand;
+    if (!GENERIC.test(cand) && GENERIC.test(cur)) return cand;
+    return cur;
   }
 
   function bestPhone(text) {
-    const m = text.match(/(?:Tel(?:efon|\.)?|Fon|\+49|Mobil)[\s.:]*([+\d][\d\s()\-\/]{7,18})/i);
-    return m ? m[1].trim().replace(/\s+/g, ' ') : null;
+    const m = text.match(/(?:Tel(?:efon|\.|)?|Fon|\+49|Mobil)[\s.:]*([+\d][\d\s()\-\/]{7,18})/i);
+    return m ? m[1].trim().replace(/\s+/g,' ') : null;
   }
 
   const BLACKLIST = new Set([
@@ -116,15 +104,13 @@ export default async function handler(req, res) {
     'Landkreis','Kreis','Stadt','Gemeinde','Bundesland','Bezirk','Region',
     'Amtsgericht','Handelsregister','Deutschland','Germany','Bayern','Berlin',
     'Hamburg','München','Frankfurt','Köln','Stuttgart','Hannover','Düsseldorf',
-    'Krefeld','Dortmund','Dresden','Leipzig','Bremen','Essen','Duisburg',
-    'Der','Die','Das','Den','Dem','Ein','Eine','Ihr','Ihre','Unser','Unsere',
-    'GmbH','AG','KG','SE','OHG','UG','Dienstleistungen','Management',
+    'Der','Die','Das','Den','Dem','Ein','Eine','Ihr','Ihre',
+    'GmbH','AG','KG','SE','OHG','UG','Management',
     'Vertrieb','Marketing','Personal','Recruiting','Einkauf','Buchhaltung',
     'Controlling','Produktion','Technik','Entwicklung','Forschung','Logistik',
     'Verwaltung','Sekretariat','Empfang','Assistenz','Beratung','Support',
-    'Qualität','Sicherheit','Compliance','Recht','Finanzen','Rechnungswesen',
-    'International','Regional','National','Global','Digital','Online',
-    'Herr','Frau','Dr','Prof','Dipl','Ing','Hr','Fr',
+    'Qualität','Sicherheit','Compliance','Recht','Finanzen',
+    'Herr','Frau','Dr','Prof','Dipl','Ing',
   ]);
 
   function isRealName(first, last) {
@@ -183,122 +169,75 @@ export default async function handler(req, res) {
   }
 
   const fetchPage = async (url) => {
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), 2500);
+    const ctrl = new AbortController();
+    const t = setTimeout(() => ctrl.abort(), 2500);
     try {
       const r = await fetch(url, {
         headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36' },
-        redirect: 'follow',
-        signal: controller.signal,
+        redirect: 'follow', signal: ctrl.signal,
       });
-      clearTimeout(timer);
+      clearTimeout(t);
       if (!r.ok) return null;
       return stripHtml(await r.text());
-    } catch { clearTimeout(timer); return null; }
+    } catch { clearTimeout(t); return null; }
   };
 
   let bestEmailFound = null;
   let bestPhoneFound = null;
 
-  // ── Priority 0: jobText (Stellenanzeige text) ────────────────────────────
+  // ── Priority 0: Parse jobText ─────────────────────────────────────────────
   if (jobText) {
     const jt = decodeURIComponent(jobText).replace(/<[^>]+>/g,' ').replace(/\s+/g,' ');
     bestEmailFound = upgradeEmail(bestEmailFound, bestEmail(jt));
     bestPhoneFound = bestPhone(jt);
-
-    // HR pattern
     const hr = extractHR(jt);
-    if (hr) {
-      return res.status(200).json({
-        firstName: hr.firstName, lastName: hr.lastName,
-        email: bestEmailFound, phone: bestPhoneFound,
-        position: getHRPosition(jt), source: 'stellenanzeige', website: website || null,
-      });
-    }
-    // Direct name patterns in job ads
+    if (hr) return res.status(200).json({ firstName:hr.firstName, lastName:hr.lastName, email:bestEmailFound, phone:bestPhoneFound, position:getHRPosition(jt), source:'stellenanzeige', website:website||null });
     for (const p of [
       /(?:Ansprechpartner(?:in)?|Ihr Kontakt|Kontakt)[:\s]+([A-ZÄÖÜ][a-zA-ZäöüÄÖÜß\-]+)\s+([A-ZÄÖÜ][a-zA-ZäöüÄÖÜß\-]+)/i,
       /([A-ZÄÖÜ][a-zA-ZäöüÄÖÜß\-]+)\s+([A-ZÄÖÜ][a-zA-ZäöüÄÖÜß\-]+)\s*(?:ist Ihr|steht Ihnen|freut sich|beantwortet Ihre)/i,
     ]) {
       const m = jt.match(p);
-      if (m && isRealName(m[1], m[2])) {
-        return res.status(200).json({
-          firstName: m[1], lastName: m[2],
-          email: bestEmailFound, phone: bestPhoneFound,
-          position: 'Ansprechpartner/in', source: 'stellenanzeige', website: website || null,
-        });
-      }
+      if (m && isRealName(m[1], m[2])) return res.status(200).json({ firstName:m[1], lastName:m[2], email:bestEmailFound, phone:bestPhoneFound, position:'Ansprechpartner/in', source:'stellenanzeige', website:website||null });
     }
   }
 
-  // ── Priority 1: Known website ────────────────────────────────────────────
+  // ── Priority 1+2: Website ──────────────────────────────────────────────────
   let base = null;
   if (website) {
     base = website.startsWith('http') ? website.replace(/\/$/, '') : 'https://' + website;
+  } else {
+    base = await findWebsiteByProbing(name, city);
   }
 
-  // ── Priority 2: DuckDuckGo website lookup ────────────────────────────────
   if (!base) {
-    base = await findWebsiteByProbing(name);
-  }
-
-  // No website found at all → return email if any
-  console.log('find-contact: base=', base, 'name=', name);
-  if (!base) {
-    if (bestEmailFound) return res.status(200).json({ ...empty, email: bestEmailFound, phone: bestPhoneFound });
+    if (bestEmailFound) return res.status(200).json({ ...empty, email:bestEmailFound, phone:bestPhoneFound });
     return res.status(200).json(empty);
   }
 
-  // ── Priority 3: Scrape known website ────────────────────────────────────
+  // ── Priority 3: Scrape website ────────────────────────────────────────────
   const pages = [
-    { url: base + '/impressum',    type: 'impressum' },
-    { url: base + '/karriere',     type: 'career' },
-    { url: base + '/kontakt',      type: 'contact' },
-    { url: base + '/jobs',         type: 'career' },
-    { url: base,                   type: 'home' },
+    { url: base+'/impressum', type:'impressum' },
+    { url: base+'/karriere',  type:'career' },
+    { url: base+'/kontakt',   type:'contact' },
+    { url: base+'/jobs',      type:'career' },
+    { url: base,              type:'home' },
   ];
 
-  const pageResults = await Promise.all(
-    pages.map(p => fetchPage(p.url).then(text => ({ ...p, text })))
-  );
+  const results = await Promise.all(pages.map(p => fetchPage(p.url).then(text => ({...p, text}))));
 
-  let ceoContact = null;
-  let ceoSource = null;
-
-  for (const page of pageResults) {
-    const text = page.text;
-    if (!text) continue;
-    const em = bestEmail(text);
-    const ph = bestPhone(text);
+  let ceoContact = null, ceoSource = null;
+  for (const page of results) {
+    if (!page.text) continue;
+    const em = bestEmail(page.text);
+    const ph = bestPhone(page.text);
     bestEmailFound = upgradeEmail(bestEmailFound, em);
     if (ph && !bestPhoneFound) bestPhoneFound = ph;
-
-    const hr = extractHR(text);
-    if (hr) {
-      return res.status(200).json({
-        firstName: hr.firstName, lastName: hr.lastName,
-        email: bestEmailFound || em, phone: bestPhoneFound || ph,
-        position: getHRPosition(text), source: page.url.replace(base,'') || 'homepage',
-        website: base,
-      });
-    }
-    if (!ceoContact) {
-      const ceo = extractCEO(text);
-      if (ceo) { ceoContact = ceo; ceoSource = page.url.replace(base,'') || 'homepage'; }
-    }
+    const hr = extractHR(page.text);
+    if (hr) return res.status(200).json({ firstName:hr.firstName, lastName:hr.lastName, email:bestEmailFound||em, phone:bestPhoneFound||ph, position:getHRPosition(page.text), source:page.url.replace(base,'')||'homepage', website:base });
+    if (!ceoContact) { const ceo = extractCEO(page.text); if (ceo) { ceoContact=ceo; ceoSource=page.url.replace(base,'')||'homepage'; } }
   }
 
-  if (ceoContact) {
-    return res.status(200).json({
-      firstName: ceoContact.firstName, lastName: ceoContact.lastName,
-      email: bestEmailFound, phone: bestPhoneFound,
-      position: 'Geschäftsführer/in', source: ceoSource, website: base,
-    });
-  }
-
-  if (bestEmailFound) {
-    return res.status(200).json({ ...empty, email: bestEmailFound, phone: bestPhoneFound, website: base });
-  }
-
+  if (ceoContact) return res.status(200).json({ firstName:ceoContact.firstName, lastName:ceoContact.lastName, email:bestEmailFound, phone:bestPhoneFound, position:'Geschäftsführer/in', source:ceoSource, website:base });
+  if (bestEmailFound) return res.status(200).json({ ...empty, email:bestEmailFound, phone:bestPhoneFound, website:base });
   return res.status(200).json(empty);
 }
