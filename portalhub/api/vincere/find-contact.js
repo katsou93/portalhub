@@ -114,7 +114,7 @@ export default async function handler(req, res) {
     try {
       const r = await fetch(url, {
         headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36' },
-        signal: AbortSignal.timeout(2500),
+        signal: (() => { const c = new AbortController(); setTimeout(() => c.abort(), 2500); return c.signal; })(),
         redirect: 'follow',
       });
       if (!r.ok) return null;
@@ -135,7 +135,7 @@ export default async function handler(req, res) {
           'Content-Type': 'application/x-www-form-urlencoded',
         },
         body: 'q=' + encodeURIComponent(searchQuery) + '&b=&kl=de-de',
-        signal: AbortSignal.timeout(5000),
+        signal: (() => { const c = new AbortController(); setTimeout(() => c.abort(), 5000); return c.signal; })(),
       });
       const html = await r.text();
       console.log('DDG status:', r.status, 'html length:', html.length, 'first200:', html.substring(0,200));
