@@ -638,6 +638,8 @@ export default function App() {
       // Steps 2+3: Find & add contact in background
       const companyId = compResult.id;
       const locationId = compResult.locationId || null;
+      // Use website from Vincere record if we don't have one from BA
+      if(!website && compResult.website) website = compResult.website;
       (async()=>{
         try{
           let contact = null;

@@ -71,7 +71,16 @@ export default async function handler(req, res) {
             );
             if (found) {
               console.log('Found existing company:', found.id, found.name);
-              return res.status(200).json({ ok: true, id: found.id, name: found.name, locationId: null, existing: true });
+              // Also get website from Vincere company record
+              let foundWebsite = null;
+              try {
+                const wr = await fetch(`https://${tenant}.vincere.io/api/v2/company/${found.id}`, { headers: h });
+                if (wr.ok) {
+                  const wd = await wr.json();
+                  foundWebsite = wd.website || null;
+                }
+              } catch {}
+              return res.status(200).json({ ok: true, id: found.id, name: found.name, locationId: null, website: foundWebsite, existing: true });
             }
           }
         } catch (e) { console.log('Search existing failed:', e.message); }
