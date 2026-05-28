@@ -133,12 +133,24 @@ export default async function handler(req, res) {
   if (website) {
     base = website.startsWith('http') ? website.replace(/\/$/, '') : 'https://' + website;
   } else {
-    const raw = name.toLowerCase()
-      .replace(/gmbh\s*&\s*co\.?\s*kg|gmbh|grp\.|group|\bag\b|\bse\b|\bkg\b|e\.v\.|ohg|\bug\b/gi, '')
+    const stripped = name.toLowerCase()
+      .replace(/gmbh\s*&\s*co\.?\s*kg|gmbh\s*&\s*co|grp\.|group|\bag\b|\bse\b|\bkg\b|e\.v\.|ohg|\bug\b|\bgmbh\b/gi, '')
+      .replace(/niederlassung\s+\w+/gi, '')   // strip "Niederlassung Erfurt" etc
       .replace(/ä/g,'ae').replace(/ö/g,'oe').replace(/ü/g,'ue').replace(/ß/g,'ss')
-      .replace(/[^a-z0-9]+/g,'-').replace(/^-+|-+$/g,'').substring(0, 25);
-    if (!raw || raw.length < 3) return res.status(200).json(result);
-    base = 'https://www.' + raw + '.de';
+      .replace(/\s+/g, ' ').trim();
+
+    const words = stripped.split(' ').filter(w => w.length > 0);
+    const firstToken = (words[0] || '').replace(/[^a-z0-9\-]/g, '').replace(/^-+|-+$/g, '');
+    const twoWords = words.slice(0,2).join('-').replace(/[^a-z0-9\-]/g,'').replace(/^-+|-+$/g,'').substring(0,25);
+
+    if (!firstToken || firstToken.length < 2) return res.status(200).json(result);
+
+    // Use two-word slug if first word is too short (e.g. "next" → use "next-2m")
+    const primaryBase = firstToken.length >= 4 ? firstToken : twoWords;
+    const secondaryBase = primaryBase === twoWords ? firstToken : (twoWords !== primaryBase ? twoWords : null);
+
+    base = 'https://www.' + primaryBase + '.de';
+    result._altBase2 = secondaryBase && secondaryBase !== primaryBase ? 'https://www.' + secondaryBase + '.de' : null;
   }
   result.website = base;
 
@@ -156,8 +168,9 @@ export default async function handler(req, res) {
 
   // Pages to try in order - HR pages first, then Impressum for CEO
   // Build candidate URLs to try - also try alt base domain
-  const altBase = result._altBase;
+  const altBase = result._altBase || result._altBase2;
   delete result._altBase;
+  delete result._altBase2;
   const pages = [
     { url: base + '/karriere',        type: 'career' },
     { url: base + '/jobs',            type: 'career' },
