@@ -132,7 +132,9 @@ export default async function handler(req, res) {
     if (!/^[A-ZÄÖÜ][a-zA-ZäöüÄÖÜß\-]{1,24}$/.test(first)) return false;
     if (!/^[A-ZÄÖÜ][a-zA-ZäöüÄÖÜß\-]{1,29}$/.test(last)) return false;
     if (/\d/.test(first) || /\d/.test(last)) return false;
-    // Reject if either part looks like a common English/tech word (all lowercase except first char)
+    // Reject ALL CAPS words (e.g. "LESEN", "MONTAGE") - not real name format
+    if (first === first.toUpperCase() || last === last.toUpperCase()) return false;
+    // Reject if looks like a common English/tech word
     const COMMON_ENDINGS = /(?:ing|tion|ment|ence|ance|ware|tech|corp|land|werk|schaft)$/i;
     if (COMMON_ENDINGS.test(last) && last.length > 8) return false;
     return true;
