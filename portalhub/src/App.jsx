@@ -686,6 +686,14 @@ export default function App() {
               const d = await r.json();
               // Accept contact if we have a name OR just an email
               if(d.firstName || d.email) contact = d;
+              // If find-contact discovered the website via probing → update Vincere company record
+              if(d.website && !website && companyId) {
+                fetch('/api/vincere/update-company', {
+                  method:'POST', headers:{'Content-Type':'application/json'},
+                  body:JSON.stringify({companyId, website: d.website})
+                }).catch(()=>{});
+                website = d.website;
+              }
             }
           }
 
