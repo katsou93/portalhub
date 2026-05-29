@@ -192,6 +192,25 @@ export default async function handler(req, res) {
     bestPhoneFound = bestPhone(jt);
     const hr = extractHR(jt);
     if (hr) return res.status(200).json({ firstName:hr.firstName, lastName:hr.lastName, email:bestEmailFound, phone:bestPhoneFound, position:getHRPosition(jt), source:'stellenanzeige', website:website||null });
+
+    // Extract name from personal email address (vorname.nachname@ or vorname_nachname@)
+    if (bestEmailFound && !HR_EMAIL.test(bestEmailFound) && !GENERIC.test(bestEmailFound)) {
+      const localPart = bestEmailFound.split('@')[0];
+      const separatorMatch = localPart.match(/^([a-z]+)[._\-]([a-z]+)$/i);
+      if (separatorMatch) {
+        const cap = s => s.charAt(0).toUpperCase() + s.slice(1).toLowerCase();
+        const fn = cap(separatorMatch[1]);
+        const ln = cap(separatorMatch[2]);
+        if (isRealName(fn, ln)) {
+          return res.status(200).json({
+            firstName: fn, lastName: ln,
+            email: bestEmailFound, phone: bestPhoneFound,
+            position: 'Ansprechpartner/in', source: 'stellenanzeige', website: website||null,
+          });
+        }
+      }
+    }
+
     for (const p of [
       /(?:Ansprechpartner(?:in)?|Ihr Kontakt|Kontakt)[:\s]+([A-ZÄÖÜ][a-zA-ZäöüÄÖÜß\-]+)\s+([A-ZÄÖÜ][a-zA-ZäöüÄÖÜß\-]+)/i,
       /([A-ZÄÖÜ][a-zA-ZäöüÄÖÜß\-]+)\s+([A-ZÄÖÜ][a-zA-ZäöüÄÖÜß\-]+)\s*(?:ist Ihr|steht Ihnen|freut sich|beantwortet Ihre)/i,
