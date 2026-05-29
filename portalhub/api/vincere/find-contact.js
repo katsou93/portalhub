@@ -195,6 +195,9 @@ export default async function handler(req, res) {
     for (const p of [
       /(?:Ansprechpartner(?:in)?|Ihr Kontakt|Kontakt)[:\s]+([A-ZÄÖÜ][a-zA-ZäöüÄÖÜß\-]+)\s+([A-ZÄÖÜ][a-zA-ZäöüÄÖÜß\-]+)/i,
       /([A-ZÄÖÜ][a-zA-ZäöüÄÖÜß\-]+)\s+([A-ZÄÖÜ][a-zA-ZäöüÄÖÜß\-]+)\s*(?:ist Ihr|steht Ihnen|freut sich|beantwortet Ihre)/i,
+      /(?:Ansprechpartner(?:in)?|Kontakt(?:person)?)[^.]{0,40}?(?:Frau|Herr)\s+([A-ZÄÖÜ][a-zA-ZäöüÄÖÜß\-]+)\s+([A-ZÄÖÜ][a-zA-ZäöüÄÖÜß\-]+)/i,
+      /(?:ist|sind)\s+(?:Frau|Herr)\s+([A-ZÄÖÜ][a-zA-ZäöüÄÖÜß\-]+)\s+([A-ZÄÖÜ][a-zA-ZäöüÄÖÜß\-]+)/i,
+      /(?:Frau|Herr)\s+([A-ZÄÖÜ][a-zA-ZäöüÄÖÜß\-]+)\s+([A-ZÄÖÜ][a-zA-ZäöüÄÖÜß\-]+)\s+(?:steht Ihnen|freut sich|ist Ihre|beantwortet)/i,
     ]) {
       const m = jt.match(p);
       if (m && isRealName(m[1], m[2])) return res.status(200).json({ firstName:m[1], lastName:m[2], email:bestEmailFound, phone:bestPhoneFound, position:'Ansprechpartner/in', source:'stellenanzeige', website:website||null });
