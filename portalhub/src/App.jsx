@@ -646,8 +646,9 @@ export default function App() {
           let contact = null;
 
           // Priority 1: BA job detail (structured contact data + description)
+          let baDetail = null;
           if(refnr){
-            const baDetail = await fetchBADetail(refnr);
+            baDetail = await fetchBADetail(refnr);
             if(baDetail){
               // Always extract website + description regardless of kontaktAngaben
               if(!website && baDetail.arbeitgeberHomepage) website = baDetail.arbeitgeberHomepage;
