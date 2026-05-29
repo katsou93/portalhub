@@ -68,7 +68,7 @@ export default async function handler(req, res) {
   res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate');
   if (req.method === 'OPTIONS') return res.status(200).end();
 
-  const { name, city, website, jobText } = req.query;
+  const { name, city, website, jobText, externeUrl } = req.query;
   if (!name) return res.status(400).json({ error: 'name required' });
 
   const empty = { firstName:null, lastName:null, email:null, phone:null, position:null, source:null, website:null };
@@ -223,7 +223,38 @@ export default async function handler(req, res) {
     }
   }
 
-  // ── Priority 1+2: Website ──────────────────────────────────────────────────
+  // ── Priority 1: External job page (company's own job posting) ───────────────
+  if (externeUrl && !contact) {
+    const extUrl = decodeURIComponent(externeUrl);
+    const extText = await fetchPage(extUrl);
+    if (extText) {
+      const em = bestEmail(extText);
+      const ph = bestPhone(extText);
+      bestEmailFound = upgradeEmail(bestEmailFound, em);
+      if (ph && !bestPhoneFound) bestPhoneFound = ph;
+
+      const hr = extractHR(extText);
+      if (hr) return res.status(200).json({ firstName:hr.firstName, lastName:hr.lastName, email:bestEmailFound||em, phone:bestPhoneFound||ph, position:getHRPosition(extText), source:'externe-stellenanzeige', website:website||null });
+
+      // Name from email
+      if (bestEmailFound && !HR_EMAIL.test(bestEmailFound) && !GENERIC.test(bestEmailFound)) {
+        const lp = bestEmailFound.split('@')[0];
+        const sm = lp.match(/^([a-z]+)[._\-]([a-z]+)$/i);
+        if (sm) {
+          const cap = s => s.charAt(0).toUpperCase() + s.slice(1).toLowerCase();
+          const fn = cap(sm[1]); const ln = cap(sm[2]);
+          if (isRealName(fn, ln)) return res.status(200).json({ firstName:fn, lastName:ln, email:bestEmailFound, phone:bestPhoneFound, position:'Ansprechpartner/in', source:'externe-stellenanzeige', website:website||null });
+        }
+      }
+
+      // CEO fallback from external page
+      const ceo = extractCEO(extText);
+      if (ceo) return res.status(200).json({ firstName:ceo.firstName, lastName:ceo.lastName, email:bestEmailFound, phone:bestPhoneFound, position:'Geschäftsführer/in', source:'externe-stellenanzeige', website:website||null });
+
+      if (bestEmailFound) return res.status(200).json({ ...empty, email:bestEmailFound, phone:bestPhoneFound, website:website||null });
+    }
+  }
+  // ── Priority 2+3: Website ──────────────────────────────────────────────────
   let base = null;
   if (website) {
     base = website.startsWith('http') ? website.replace(/\/$/, '') : 'https://' + website;

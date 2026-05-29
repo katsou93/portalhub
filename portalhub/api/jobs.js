@@ -75,6 +75,8 @@ export default async function handler(req, res) {
         kontaktAngaben: kontaktAngaben,
         arbeitgeberHomepage: stelle.arbeitgeberHomepage || null,
         stellenbeschreibung: stelle.stellenbeschreibung || null,
+        // External job URL (when BA redirects to company's own job page)
+        externeUrl: stelle.externeUrl || stelle.externalJobUrl || stelle.externalUrl || null,
       });
     }
 

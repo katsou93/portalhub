@@ -678,6 +678,7 @@ export default function App() {
             const params = new URLSearchParams({name, city:city||''});
             if(website) params.set('website', website);
             if(jobText) params.set('jobText', encodeURIComponent(jobText));
+            if(baDetail?.externeUrl) params.set('externeUrl', encodeURIComponent(baDetail.externeUrl));
             const r = await fetch('/api/vincere/find-contact?'+params);
             if(r.ok){
               const d = await r.json();
