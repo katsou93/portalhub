@@ -93,11 +93,24 @@ export default async function handler(req, res) {
   }
 
   function bestPhone(text) {
-    const m = text.match(/(?:Tel(?:efon|\.|)?|Fon|\+49|Mobil)[\s.:]*([+\d][\d\s()\-\/]{7,18})/i);
-    return m ? m[1].trim().replace(/\s+/g,' ') : null;
+    // Try labeled phone first
+    const m1 = text.match(/(?:Tel(?:efon|efax|\.)?|Fon|Phone|\+49|Mobil|Telefon)[\s.:]*([+\d][\d\s()\-\/]{7,18})/i);
+    if (m1) return m1[1].trim().replace(/\s+/g,' ');
+    // Fallback: standalone German number (0xxx / +49)
+    const m2 = text.match(/(?:^|\s)((?:\+49|0)[\d\s()\-\/]{8,18})(?:\s|$)/m);
+    if (m2) return m2[1].trim().replace(/\s+/g,' ');
+    return null;
   }
 
   const BLACKLIST = new Set([
+    // English tech/company words that get misread as names
+    'Engineering','Software','Solutions','Systems','Services','Technologies',
+    'Consulting','Business','International','Industrial','Technical','Digital',
+    'Applications','Products','Operations','Innovation','Automation','Division',
+    'Manufacturing','Mechanical','Electrical','Electronic','Chemical',
+    // German verbs/words that look like capitalized names
+    'Lesen','Schreiben','Suchen','Finden','Mehr','Alle','Hier','Jetzt',
+    'Unsere','Unseren','Ihrem','Ihrer','Seinen','Seiner','Werden','Haben',
     'Downloads','Karriere','Jobs','Kontakt','Impressum','Datenschutz','Login',
     'Home','News','Service','Produkte','Ausbildung','Bewerbung','Team','Info',
     'Unternehmen','Leistungen','Referenzen','Partner','Blog','Presse','Stellenangebote',
@@ -119,6 +132,9 @@ export default async function handler(req, res) {
     if (!/^[A-ZÄÖÜ][a-zA-ZäöüÄÖÜß\-]{1,24}$/.test(first)) return false;
     if (!/^[A-ZÄÖÜ][a-zA-ZäöüÄÖÜß\-]{1,29}$/.test(last)) return false;
     if (/\d/.test(first) || /\d/.test(last)) return false;
+    // Reject if either part looks like a common English/tech word (all lowercase except first char)
+    const COMMON_ENDINGS = /(?:ing|tion|ment|ence|ance|ware|tech|corp|land|werk|schaft)$/i;
+    if (COMMON_ENDINGS.test(last) && last.length > 8) return false;
     return true;
   }
 
