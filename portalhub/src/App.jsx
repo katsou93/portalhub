@@ -644,31 +644,32 @@ export default function App() {
         try{
           let contact = null;
 
-          // Priority 1: BA job detail (structured contact data)
+          // Priority 1: BA job detail (structured contact data + description)
           if(refnr){
             const baDetail = await fetchBADetail(refnr);
-            if(baDetail?.kontaktAngaben){
-              const k = baDetail.kontaktAngaben;
-              const fullName = (k.ansprechpartner||k.name||'').trim();
-              const parts = fullName.split(/\s+/).filter(Boolean);
-              // Accept even single-word names if email is present
-              if(parts.length >= 2 || (parts.length === 1 && (k.email||k.emailAdresse))){
-                contact = {
-                  firstName: parts[0] || null,
-                  lastName:  parts.slice(1).join(' ') || null,
-                  email:     k.email||k.emailAdresse||null,
-                  phone:     k.telefonnummer||k.telefon||null,
-                  position:  k.berufsbezeichnung||'Ansprechpartner/in',
-                  source:    'bundesagentur',
-                };
-              }
-              // Update company website if found
-              if(baDetail.arbeitgeberHomepage && !website && companyId){
+            if(baDetail){
+              // Always extract website + description regardless of kontaktAngaben
+              if(!website && baDetail.arbeitgeberHomepage) website = baDetail.arbeitgeberHomepage;
+              if(!jobText && baDetail.stellenbeschreibung) jobText = baDetail.stellenbeschreibung.substring(0,1500);
+              if(baDetail.arbeitgeberHomepage && companyId){
                 addToVincere(name, city, postcode, baDetail.arbeitgeberHomepage).catch(()=>{});
               }
-              // Use BA website and description as fallback
-              if(!website && baDetail.arbeitgeberHomepage) website = baDetail.arbeitgeberHomepage;
-              if(!jobText && baDetail.stellenbeschreibung) jobText = baDetail.stellenbeschreibung.substring(0,1000);
+              // Structured contact from BA API
+              if(baDetail.kontaktAngaben){
+                const k = baDetail.kontaktAngaben;
+                const fullName = (k.ansprechpartner||k.name||'').trim();
+                const parts = fullName.split(/\s+/).filter(Boolean);
+                if(parts.length >= 2 || (parts.length === 1 && (k.email||k.emailAdresse))){
+                  contact = {
+                    firstName: parts[0] || null,
+                    lastName:  parts.slice(1).join(' ') || null,
+                    email:     k.email||k.emailAdresse||null,
+                    phone:     k.telefonnummer||k.telefon||null,
+                    position:  k.berufsbezeichnung||'Ansprechpartner/in',
+                    source:    'bundesagentur',
+                  };
+                }
+              }
             }
           }
 
