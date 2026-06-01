@@ -58,6 +58,7 @@ export default async function handler(req, res) {
     if (!compR.ok) {
       // If duplicate, find the existing company and return its id so we can still add a contact
       if (compData?.errorCode === 'DUPLICATED' || compData?.message?.includes('already associated')) {
+        console.log('DUPLICATED full error:', JSON.stringify(compData).substring(0, 500));
         try {
           // Scan all companies (empty keyword = all, sorted by name = A first)
           const normQ = name.toLowerCase().replace(/\s+/g,'').replace(/gmbh|ag|kg|se/g,'');
