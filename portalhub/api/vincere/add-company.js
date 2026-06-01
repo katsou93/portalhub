@@ -60,15 +60,18 @@ export default async function handler(req, res) {
       if (compData?.errorCode === 'DUPLICATED' || compData?.message?.includes('already associated')) {
         try {
           const searchName = encodeURIComponent(name.substring(0, 30));
-          const sr = await fetch(`https://${tenant}.vincere.io/api/v2/company/search/fl=id,name?keyword=${searchName}&rows=5`, {
+          const sr = await fetch(`https://${tenant}.vincere.io/api/v2/company/search?keyword=${searchName}&fl=id,name&rows=5`, {
             headers: h
           });
           if (sr.ok) {
             const sd = await sr.json();
-            const found = (sd.result?.items || []).find(c =>
-              c.name?.toLowerCase().replace(/\s+/g,'') === name.toLowerCase().replace(/\s+/g,'')
-              || c.name?.toLowerCase().includes(name.toLowerCase().substring(0,15))
-            );
+            const normQ = name.toLowerCase().replace(/\s+/g,'').replace(/gmbh|ag|kg/g,'');
+            const found = (sd.result?.items || []).find(c => {
+              const normC = (c.name||'').toLowerCase().replace(/\s+/g,'').replace(/gmbh|ag|kg/g,'');
+              return normC === normQ
+                || normC.includes(normQ.substring(0,12))
+                || normQ.includes(normC.substring(0,12));
+            });
             if (found) {
               console.log('Found existing company:', found.id, found.name);
               // Also get website from Vincere company record
