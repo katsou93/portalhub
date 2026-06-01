@@ -43,15 +43,33 @@ export default async function handler(req, res) {
   const h = { 'Content-Type': 'application/json', 'id-token': token, 'x-api-key': apiKey };
   const { firstName, lastName, email, phone, position, companyId, locationId } = req.body || {};
 
-  // companyId optional - contact can be created without company link
+  // If no companyId, look up company by name in Vincere
+  let resolvedCompanyId = companyId ? parseInt(companyId) : null;
+  const companyName = req.body?.companyName;
+  if (!resolvedCompanyId && companyName) {
+    try {
+      const normQ = companyName.toLowerCase().replace(/\s+/g,'').replace(/gmbh|ag|kg|se/g,'');
+      const terms = [companyName.split(' ')[0], companyName.split(' ').slice(0,2).join(' ')];
+      for (const term of [...new Set(terms)]) {
+        const sr = await fetch(`https://${tenant}.vincere.io/api/v2/company/search/fl=id,name;sort=name asc?keyword=${encodeURIComponent(term)}&start=0&rows=20`, { headers: h });
+        if (!sr.ok) continue;
+        const sd = await sr.json();
+        const found = (sd.result?.items||[]).find(c => {
+          const normC = (c.name||'').toLowerCase().replace(/\s+/g,'').replace(/gmbh|ag|kg|se/g,'');
+          return normC===normQ || normC.includes(normQ.substring(0,10)) || normQ.includes(normC.substring(0,10));
+        });
+        if (found) { resolvedCompanyId = found.id; console.log('Found company for contact:', found.id, found.name); break; }
+      }
+    } catch(e) { console.log('Company lookup failed:', e.message); }
+  }
 
   const today = new Date().toISOString().split('T')[0] + 'T00:00:00.000Z';
 
-  // Build contact payload - name optional (email-only contacts allowed)
+  // Build contact payload
   const payload = {
     registration_date: today,
   };
-  if (companyId) payload.company_id = parseInt(companyId);
+  if (resolvedCompanyId) payload.company_id = resolvedCompanyId;
 
   if (firstName) payload.first_name = firstName;
   if (lastName)  payload.last_name  = lastName;
