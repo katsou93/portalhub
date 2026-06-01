@@ -43,7 +43,7 @@ export default async function handler(req, res) {
   const h = { 'Content-Type': 'application/json', 'id-token': token, 'x-api-key': apiKey };
   const { firstName, lastName, email, phone, position, companyId, locationId } = req.body || {};
 
-  if (!companyId) return res.status(400).json({ error: 'companyId required' });
+  // companyId optional - contact can be created without company link
 
   const today = new Date().toISOString().split('T')[0] + 'T00:00:00.000Z';
 

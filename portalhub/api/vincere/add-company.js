@@ -59,32 +59,28 @@ export default async function handler(req, res) {
       // If duplicate, find the existing company and return its id so we can still add a contact
       if (compData?.errorCode === 'DUPLICATED' || compData?.message?.includes('already associated')) {
         try {
-          const searchName = encodeURIComponent(name.substring(0, 30));
-          const sr = await fetch(`https://${tenant}.vincere.io/api/v2/company/search?keyword=${searchName}&fl=id,name&rows=5`, {
-            headers: h
-          });
-          if (sr.ok) {
+          // Try multiple search terms (first word, first two words, full name)
+          const terms = [
+            name.split(' ')[0],
+            name.split(' ').slice(0,2).join(' '),
+            name.substring(0, 30),
+          ];
+          let found = null;
+          for (const term of [...new Set(terms)]) {
+            const sr = await fetch(`https://${tenant}.vincere.io/api/v2/company/search?keyword=${encodeURIComponent(term)}&fl=id,name,website&rows=10`, { headers: h });
+            if (!sr.ok) continue;
             const sd = await sr.json();
-            const normQ = name.toLowerCase().replace(/\s+/g,'').replace(/gmbh|ag|kg/g,'');
-            const found = (sd.result?.items || []).find(c => {
-              const normC = (c.name||'').toLowerCase().replace(/\s+/g,'').replace(/gmbh|ag|kg/g,'');
-              return normC === normQ
-                || normC.includes(normQ.substring(0,12))
-                || normQ.includes(normC.substring(0,12));
+            console.log('Search for', term, '→', sd.result?.total, 'results:', (sd.result?.items||[]).map(c=>c.name).join(', '));
+            const normQ = name.toLowerCase().replace(/\s+/g,'').replace(/gmbh|ag|kg|se/g,'');
+            found = (sd.result?.items||[]).find(c => {
+              const normC = (c.name||'').toLowerCase().replace(/\s+/g,'').replace(/gmbh|ag|kg|se/g,'');
+              return normC===normQ || normC.includes(normQ.substring(0,10)) || normQ.includes(normC.substring(0,10));
             });
-            if (found) {
-              console.log('Found existing company:', found.id, found.name);
-              // Also get website from Vincere company record
-              let foundWebsite = null;
-              try {
-                const wr = await fetch(`https://${tenant}.vincere.io/api/v2/company/${found.id}`, { headers: h });
-                if (wr.ok) {
-                  const wd = await wr.json();
-                  foundWebsite = wd.website || null;
-                }
-              } catch {}
-              return res.status(200).json({ ok: true, id: found.id, name: found.name, locationId: null, website: foundWebsite, existing: true });
-            }
+            if (found) break;
+          }
+          if (found) {
+            console.log('Found existing:', found.id, found.name);
+            return res.status(200).json({ ok: true, id: found.id, name: found.name, locationId: null, website: found.website||null, existing: true });
           }
         } catch (e) { console.log('Search existing failed:', e.message); }
         // Search failed but DUPLICATED = company exists - return ok:true with id=null
