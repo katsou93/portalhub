@@ -60,25 +60,24 @@ export default async function handler(req, res) {
       if (compData?.errorCode === 'DUPLICATED' || compData?.message?.includes('already associated')) {
         console.log('DUPLICATED full error:', JSON.stringify(compData).substring(0, 500));
         try {
-          // Scan all companies (empty keyword = all, sorted by name = A first)
           const normQ = name.toLowerCase().replace(/\s+/g,'').replace(/gmbh|ag|kg|se/g,'');
           let found = null;
-          let start = 0;
-          while (!found && start <= 1000) {
-            const url = `https://${tenant}.vincere.io/api/v2/company/search/fl=id,name,website;sort=name asc?keyword=&start=${start}&rows=100`;
+          // Vincere returns max 10 per page - scan pages with start=0,10,20,...
+          // 'A' names are in first ~30 pages (300 companies sorted), scan up to 50 pages
+          for (let start = 0; start <= 500 && !found; start += 10) {
+            const url = `https://${tenant}.vincere.io/api/v2/company/search/fl=id,name,website;sort=name asc?keyword=&start=${start}&rows=10`;
             const cr = await fetch(url, { headers: h });
             if (!cr.ok) break;
             const cd = await cr.json();
             const items = cd.result?.items || [];
-            const total = cd.result?.total || 0;
-            console.log('Scan start='+start+' items='+items.length+' total='+total+' first='+(items[0]?.name||''));
             if (!items.length) break;
             found = items.find(c => {
               const normC = (c.name||'').toLowerCase().replace(/\s+/g,'').replace(/gmbh|ag|kg|se/g,'');
               return normC === normQ || normC.includes(normQ.substring(0,10)) || normQ.includes(normC.substring(0,10));
             });
-            if (items.length < 100) break;
-            start += 100;
+            // Early exit: if first item is alphabetically past our target, stop
+            const firstName = (items[0]?.name||'').toLowerCase();
+            if (firstName > name.toLowerCase().substring(0,4) + 'zzzz') break;
           }
           if (found) {
             console.log('Found company:', found.id, found.name);
