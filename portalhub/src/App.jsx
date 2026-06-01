@@ -616,6 +616,17 @@ export default function App() {
     try{
       // Step 1: Create company - this MUST work first
       const compResult = await addToVincere(name, city, postcode, website);
+      // If DUPLICATED: find company in already-loaded vClients list
+      if(!compResult?.ok && compResult?.vincereError?.errorCode==='DUPLICATED') {
+        const normQ = name.toLowerCase().replace(/\s+/g,'').replace(/gmbh|ag|kg|se/g,'');
+        const found = vClients.find(c => {
+          const normC = (c.name||'').toLowerCase().replace(/\s+/g,'').replace(/gmbh|ag|kg|se/g,'');
+          return normC===normQ || normC.includes(normQ.substring(0,10)) || normQ.includes(normC.substring(0,10));
+        });
+        if(found) {
+          compResult = { ok:true, id:found.id, name:found.name, website:found.website||null, locationId:null, existing:true };
+        }
+      }
       if(!compResult||!compResult.ok){
         const err=compResult?.vincereError?JSON.stringify(compResult.vincereError).substring(0,60):(compResult?.error||'Fehler');
         setActs(a=>[{id:Date.now(),text:'⚠ '+name+': '+err,time:new Date().toLocaleTimeString('de-DE',{hour:'2-digit',minute:'2-digit'}),col:C.red},...a]);
