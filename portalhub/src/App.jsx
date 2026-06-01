@@ -616,16 +616,11 @@ export default function App() {
     try{
       // Step 1: Create company - this MUST work first
       const compResult = await addToVincere(name, city, postcode, website);
-      // If DUPLICATED: find company in already-loaded vClients list
+      // If DUPLICATED: company already exists - proceed without company ID
+      // add-company.js will try to find the ID via Vincere search API
       if(!compResult?.ok && compResult?.vincereError?.errorCode==='DUPLICATED') {
-        const normQ = name.toLowerCase().replace(/\s+/g,'').replace(/gmbh|ag|kg|se/g,'');
-        const found = (clients||[]).find(c => {
-          const normC = (c.name||'').toLowerCase().replace(/\s+/g,'').replace(/gmbh|ag|kg|se/g,'');
-          return normC===normQ || normC.includes(normQ.substring(0,10)) || normQ.includes(normC.substring(0,10));
-        });
-        if(found) {
-          compResult = { ok:true, id:found.id, name:found.name, website:found.website||null, locationId:null, existing:true };
-        }
+        // Use a placeholder - find-contact works without companyId, contact linking is optional
+        compResult = { ok:true, id:null, name, website:null, locationId:null, existing:true };
       }
       if(!compResult||!compResult.ok){
         const err=compResult?.vincereError?JSON.stringify(compResult.vincereError).substring(0,60):(compResult?.error||'Fehler');

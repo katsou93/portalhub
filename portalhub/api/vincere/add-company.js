@@ -87,6 +87,8 @@ export default async function handler(req, res) {
             }
           }
         } catch (e) { console.log('Search existing failed:', e.message); }
+        // Search failed but DUPLICATED = company exists - return ok:true with id=null
+        return res.status(200).json({ ok: true, id: null, name, locationId: null, website: null, existing: true, duplicated: true });
       }
       return res.status(200).json({ ok: false, vincereError: compData, status: compR.status });
     }
