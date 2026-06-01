@@ -59,29 +59,30 @@ export default async function handler(req, res) {
       // If duplicate, find the existing company and return its id so we can still add a contact
       if (compData?.errorCode === 'DUPLICATED' || compData?.message?.includes('already associated')) {
         try {
-          // Paginate through Vincere clients list to find the company ID
-          // (more reliable than search API which often returns no results)
+          // Use exact same URL format as clients.js (fl= in PATH, keyword= empty)
           const normQ = name.toLowerCase().replace(/\s+/g,'').replace(/gmbh|ag|kg|se/g,'');
           let found = null;
           let start = 0;
-          while (!found && start < 500) {
-            const cr = await fetch(`https://${tenant}.vincere.io/api/v2/company?fields=id,name,website&start=${start}&limit=50`, { headers: h });
+          while (!found && start <= 1000) {
+            const url = `https://${tenant}.vincere.io/api/v2/company/search/fl=id,name,website;sort=name asc?keyword=&start=${start}&rows=100`;
+            const cr = await fetch(url, { headers: h });
             if (!cr.ok) break;
             const cd = await cr.json();
-            const items = cd.result?.items || cd.items || [];
+            const items = cd.result?.items || [];
+            console.log('Clients page start='+start+' count='+items.length);
             if (!items.length) break;
             found = items.find(c => {
               const normC = (c.name||'').toLowerCase().replace(/\s+/g,'').replace(/gmbh|ag|kg|se/g,'');
               return normC === normQ || normC.includes(normQ.substring(0,10)) || normQ.includes(normC.substring(0,10));
             });
-            if (items.length < 50) break;
-            start += 50;
+            if (items.length < 100) break; // last page
+            start += 100;
           }
           if (found) {
-            console.log('Found in clients list:', found.id, found.name);
+            console.log('Found company:', found.id, found.name);
             return res.status(200).json({ ok: true, id: found.id, name: found.name, locationId: null, website: found.website||null, existing: true });
           }
-        } catch (e) { console.log('Clients lookup failed:', e.message); }
+        } catch (e) { console.log('Company lookup failed:', e.message); }
         return res.status(200).json({ ok: true, id: null, name, locationId: null, website: null, existing: true, duplicated: true });
       }
       return res.status(200).json({ ok: false, vincereError: compData, status: compR.status });
