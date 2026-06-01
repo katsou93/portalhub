@@ -176,15 +176,28 @@ export default async function handler(req, res) {
 
   function extractCEO(text) {
     const patterns = [
+      // Full name: Geschäftsführer: Max Mustermann
       /(?:Geschäftsführer(?:in)?|CEO|Inhaber(?:in)?|Vorstand(?:svorsitzender)?)[:\s]+([A-ZÄÖÜ][a-zA-ZäöüÄÖÜß\-]+)\s+([A-ZÄÖÜ][a-zA-ZäöüÄÖÜß\-]+)/,
+      // Name before title: Max Mustermann, Geschäftsführer
       /([A-ZÄÖÜ][a-zA-ZäöüÄÖÜß\-]+)\s+([A-ZÄÖÜ][a-zA-ZäöüÄÖÜß\-]+)[,\s]+(?:Geschäftsführer(?:in)?|CEO|Inhaber(?:in)?)/,
+      // vertreten durch
       /(?:vertreten\s+durch|represented\s+by)[:\s]+([A-ZÄÖÜ][a-zA-ZäöüÄÖÜß\-]+)\s+([A-ZÄÖÜ][a-zA-ZäöüÄÖÜß\-]+)/i,
+      // (Geschäftsführer)
       /([A-ZÄÖÜ][a-zA-ZäöüÄÖÜß\-]+)\s+([A-ZÄÖÜ][a-zA-ZäöüÄÖÜß\-]+)\s*\((?:Geschäftsführer(?:in)?|CEO|Inhaber(?:in)?)\)/,
     ];
     for (const p of patterns) {
       for (const m of text.matchAll(new RegExp(p.source, 'g'))) {
         if (isRealName(m[1], m[2])) return { firstName: m[1], lastName: m[2] };
       }
+    }
+    // Fallback: initial + lastname format (e.g. "M. Hofmann")
+    const initials = [
+      /(?:Geschäftsführer(?:in)?|CEO|Inhaber(?:in)?)[^:]*:\s*([A-ZÄÖÜ]\.)\s+([A-ZÄÖÜ][a-zA-ZäöüÄÖÜß\-]{2,24})/,
+      /([A-ZÄÖÜ]\.)\s+([A-ZÄÖÜ][a-zA-ZäöüÄÖÜß\-]{2,24})[,\s]+(?:Geschäftsführer(?:in)?|CEO|Inhaber(?:in)?)/,
+    ];
+    for (const p of initials) {
+      const m = text.match(p);
+      if (m && !BLACKLIST.has(m[2])) return { firstName: m[1], lastName: m[2] };
     }
     return null;
   }
