@@ -25,6 +25,12 @@ async function findWebsiteByProbing(companyName, city) {
   if (words.length > 3) slugs.add(words.slice(0,3).join('-'));
   if (words.length > 2) slugs.add(words.slice(0,2).join('-'));
   if (words[0]?.length >= 3) slugs.add(words[0]);
+  // For acronyms (short first word <= 5 chars), try with common suffixes
+  if (words[0]?.length <= 5) {
+    for (const sfx of ['-gmbh', '-service', '-gruppe', '-solutions', '-systems', '-tech', '-online', '-gruppe']) {
+      slugs.add(words[0] + sfx);
+    }
+  }
 
   const probes = [];
   for (const slug of slugs) {
@@ -47,8 +53,13 @@ async function findWebsiteByProbing(companyName, city) {
       const text = (await r.text()).toLowerCase();
       // Require ALL significant words (>3 chars) to appear on the page
       // This prevents false positives like emsland.de for "Emsland Frischgeflügel"
+      // Require at least ONE main keyword to appear on page (prevents totally wrong domains)
+      // For short acronyms (iws, cm etc.), just check the acronym itself
       const allKW = norm.split('-').filter(w => w.length > 3);
-      const hit = allKW.length > 0 ? allKW.every(k => text.includes(k)) : true;
+      const shortAcronym = norm.split('-')[0];
+      const hit = allKW.length > 0
+        ? allKW.some(k => text.includes(k)) || text.includes(shortAcronym)
+        : true;
       if (!hit) return null;
       return 'https://' + new URL(r.url || url).hostname;
     } catch { clearTimeout(t); return null; }
