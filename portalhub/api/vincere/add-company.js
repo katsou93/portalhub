@@ -59,23 +59,25 @@ export default async function handler(req, res) {
       // If duplicate, find the existing company and return its id so we can still add a contact
       if (compData?.errorCode === 'DUPLICATED' || compData?.message?.includes('already associated')) {
         try {
-          // Use exact same URL format as clients.js (fl= in PATH, keyword= empty)
+          // Search using first 4 chars as keyword to narrow results
           const normQ = name.toLowerCase().replace(/\s+/g,'').replace(/gmbh|ag|kg|se/g,'');
+          const keyword = name.split(' ')[0].substring(0, 4); // e.g. "ABLI" for "ABLIG Feinfrost"
           let found = null;
           let start = 0;
-          while (!found && start <= 1000) {
-            const url = `https://${tenant}.vincere.io/api/v2/company/search/fl=id,name,website;sort=name asc?keyword=&start=${start}&rows=100`;
+          while (!found && start <= 500) {
+            const url = `https://${tenant}.vincere.io/api/v2/company/search/fl=id,name,website;sort=name asc?keyword=${encodeURIComponent(keyword)}&start=${start}&rows=100`;
             const cr = await fetch(url, { headers: h });
             if (!cr.ok) break;
             const cd = await cr.json();
             const items = cd.result?.items || [];
-            console.log('Clients page start='+start+' count='+items.length);
+            const total = cd.result?.total || 0;
+            console.log('Searching keyword='+keyword+' start='+start+' found='+items.length+' total='+total);
             if (!items.length) break;
             found = items.find(c => {
               const normC = (c.name||'').toLowerCase().replace(/\s+/g,'').replace(/gmbh|ag|kg|se/g,'');
               return normC === normQ || normC.includes(normQ.substring(0,10)) || normQ.includes(normC.substring(0,10));
             });
-            if (items.length < 100) break; // last page
+            if (items.length < 100) break;
             start += 100;
           }
           if (found) {

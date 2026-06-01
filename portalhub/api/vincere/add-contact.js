@@ -49,9 +49,9 @@ export default async function handler(req, res) {
   if (!resolvedCompanyId && companyName) {
     try {
       const normQ = companyName.toLowerCase().replace(/\s+/g,'').replace(/gmbh|ag|kg|se/g,'');
-      const terms = [companyName.split(' ')[0], companyName.split(' ').slice(0,2).join(' ')];
-      for (const term of [...new Set(terms)]) {
-        const sr = await fetch(`https://${tenant}.vincere.io/api/v2/company/search/fl=id,name;sort=name asc?keyword=${encodeURIComponent(term)}&start=0&rows=20`, { headers: h });
+      const keyword = companyName.split(' ')[0].substring(0, 4);
+      for (const term of [keyword]) {
+        const sr = await fetch(`https://${tenant}.vincere.io/api/v2/company/search/fl=id,name;sort=name asc?keyword=${encodeURIComponent(term)}&start=0&rows=50`, { headers: h });
         if (!sr.ok) continue;
         const sd = await sr.json();
         const found = (sd.result?.items||[]).find(c => {
