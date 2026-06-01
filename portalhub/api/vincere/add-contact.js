@@ -50,8 +50,8 @@ export default async function handler(req, res) {
   // Build contact payload - name optional (email-only contacts allowed)
   const payload = {
     registration_date: today,
-    company_id: parseInt(companyId),
   };
+  if (companyId) payload.company_id = parseInt(companyId);
 
   if (firstName) payload.first_name = firstName;
   if (lastName)  payload.last_name  = lastName;
