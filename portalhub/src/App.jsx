@@ -107,6 +107,7 @@ async function addContact(companyId, contact, locationId) {
         firstName:contact.firstName||null, lastName:contact.lastName||null,
         email:contact.email||null, phone:contact.phone||null,
         position:contact.position||null, companyId, locationId:locationId||null,
+        companyName: contact.companyName || null,
       })
     });
     if(!r.ok) return null;
@@ -706,7 +707,7 @@ export default function App() {
 
           // Add contact to Vincere (name + email, or just email, or nothing)
           if(contact && (contact.firstName || contact.email)){
-            const cr = await addContact(companyId, contact, locationId);
+            const cr = await addContact(companyId, {...contact, companyName: name}, locationId);
             if(cr && cr.ok){
               const nameStr = [contact.firstName,contact.lastName].filter(Boolean).join(' ');
               const info = nameStr
