@@ -49,9 +49,9 @@ export default async function handler(req, res) {
   if (!resolvedCompanyId && companyName) {
     try {
       const normQ = companyName.toLowerCase().replace(/\s+/g,'').replace(/gmbh|ag|kg|se/g,'');
-      const keyword = companyName.split(' ')[0].substring(0, 4);
-      for (const term of [keyword]) {
-        const sr = await fetch(`https://${tenant}.vincere.io/api/v2/company/search/fl=id,name;sort=name asc?keyword=${encodeURIComponent(term)}&start=0&rows=50`, { headers: h });
+      // Scan first 200 companies (empty keyword = all, sorted by name)
+      for (const start of [0, 100]) {
+        const sr = await fetch(`https://${tenant}.vincere.io/api/v2/company/search/fl=id,name;sort=name asc?keyword=&start=${start}&rows=100`, { headers: h });
         if (!sr.ok) continue;
         const sd = await sr.json();
         const found = (sd.result?.items||[]).find(c => {
@@ -59,6 +59,7 @@ export default async function handler(req, res) {
           return normC===normQ || normC.includes(normQ.substring(0,10)) || normQ.includes(normC.substring(0,10));
         });
         if (found) { resolvedCompanyId = found.id; console.log('Found company for contact:', found.id, found.name); break; }
+        if ((sd.result?.items||[]).length < 100) break;
       }
     } catch(e) { console.log('Company lookup failed:', e.message); }
   }

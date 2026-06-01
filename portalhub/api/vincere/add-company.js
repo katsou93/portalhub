@@ -59,19 +59,18 @@ export default async function handler(req, res) {
       // If duplicate, find the existing company and return its id so we can still add a contact
       if (compData?.errorCode === 'DUPLICATED' || compData?.message?.includes('already associated')) {
         try {
-          // Search using first 4 chars as keyword to narrow results
+          // Scan all companies (empty keyword = all, sorted by name = A first)
           const normQ = name.toLowerCase().replace(/\s+/g,'').replace(/gmbh|ag|kg|se/g,'');
-          const keyword = name.split(' ')[0].substring(0, 4); // e.g. "ABLI" for "ABLIG Feinfrost"
           let found = null;
           let start = 0;
-          while (!found && start <= 500) {
-            const url = `https://${tenant}.vincere.io/api/v2/company/search/fl=id,name,website;sort=name asc?keyword=${encodeURIComponent(keyword)}&start=${start}&rows=100`;
+          while (!found && start <= 1000) {
+            const url = `https://${tenant}.vincere.io/api/v2/company/search/fl=id,name,website;sort=name asc?keyword=&start=${start}&rows=100`;
             const cr = await fetch(url, { headers: h });
             if (!cr.ok) break;
             const cd = await cr.json();
             const items = cd.result?.items || [];
             const total = cd.result?.total || 0;
-            console.log('Searching keyword='+keyword+' start='+start+' found='+items.length+' total='+total);
+            console.log('Scan start='+start+' items='+items.length+' total='+total+' first='+(items[0]?.name||''));
             if (!items.length) break;
             found = items.find(c => {
               const normC = (c.name||'').toLowerCase().replace(/\s+/g,'').replace(/gmbh|ag|kg|se/g,'');
