@@ -619,7 +619,7 @@ export default function App() {
       // If DUPLICATED: find company in already-loaded vClients list
       if(!compResult?.ok && compResult?.vincereError?.errorCode==='DUPLICATED') {
         const normQ = name.toLowerCase().replace(/\s+/g,'').replace(/gmbh|ag|kg|se/g,'');
-        const found = vClients.find(c => {
+        const found = (clients||[]).find(c => {
           const normC = (c.name||'').toLowerCase().replace(/\s+/g,'').replace(/gmbh|ag|kg|se/g,'');
           return normC===normQ || normC.includes(normQ.substring(0,10)) || normQ.includes(normC.substring(0,10));
         });
