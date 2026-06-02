@@ -102,6 +102,27 @@ export default async function handler(req, res) {
           }
           if (found) {
             console.log('Found company:', found.id, found.name);
+            // Cache in KV for future lookups
+            try {
+              const kvUrl2 = process.env.KV_REST_API_URL;
+              const kvToken2 = process.env.KV_REST_API_TOKEN;
+              if (kvUrl2 && kvToken2) {
+                const gr2 = await fetch(`${kvUrl2}/get/${encodeURIComponent('portalhub:added_companies_v1')}`, { headers:{Authorization:`Bearer ${kvToken2}`} });
+                const gd2 = await gr2.json();
+                let entries2 = [];
+                if (Array.isArray(gd2.result)) entries2 = gd2.result;
+                else if (typeof gd2.result === 'string') { try { entries2 = JSON.parse(gd2.result); } catch {} }
+                const normQ2 = name.toLowerCase().replace(/\s+/g,'').replace(/gmbh|ag|kg|se/g,'');
+                if (!entries2.some(e => { const n=(typeof e==='string'?e:e?.name)||''; return n.toLowerCase().replace(/\s+/g,'').replace(/gmbh|ag|kg|se/g,'')===normQ2; })) {
+                  entries2.unshift({name: found.name, id: found.id});
+                  await fetch(`${kvUrl2}/set/${encodeURIComponent('portalhub:added_companies_v1')}`, {
+                    method:'POST', headers:{Authorization:`Bearer ${kvToken2}`,'Content-Type':'application/json'},
+                    body: JSON.stringify(entries2)
+                  });
+                  console.log('Cached company ID in KV:', found.id, found.name);
+                }
+              }
+            } catch(e) { console.log('KV cache save failed:', e.message); }
             return res.status(200).json({ ok: true, id: found.id, name: found.name, locationId: null, website: found.website||null, existing: true });
           }
         } catch (e) { console.log('Company lookup failed:', e.message); }
