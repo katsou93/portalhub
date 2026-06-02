@@ -58,7 +58,28 @@ export default async function handler(req, res) {
     if (!compR.ok) {
       // If duplicate, find the existing company and return its id so we can still add a contact
       if (compData?.errorCode === 'DUPLICATED' || compData?.message?.includes('already associated')) {
-        console.log('DUPLICATED full error:', JSON.stringify(compData).substring(0, 500));
+        // First: check KV cache for this company's ID (fastest path)
+        try {
+          const kvUrl = process.env.KV_REST_API_URL;
+          const kvToken = process.env.KV_REST_API_TOKEN;
+          if (kvUrl && kvToken) {
+            const gr = await fetch(`${kvUrl}/get/${encodeURIComponent('portalhub:added_companies_v1')}`, {
+              headers: { Authorization: `Bearer ${kvToken}` }
+            });
+            const gd = await gr.json();
+            const entries = Array.isArray(gd.result) ? gd.result : (typeof gd.result === 'string' ? JSON.parse(gd.result) : []);
+            const normQ = name.toLowerCase().replace(/\s+/g,'').replace(/gmbh|ag|kg|se/g,'');
+            const cached = entries.find(e => {
+              const eName = (typeof e === 'string' ? e : e?.name) || '';
+              const eNorm = eName.toLowerCase().replace(/\s+/g,'').replace(/gmbh|ag|kg|se/g,'');
+              return eNorm === normQ;
+            });
+            if (cached?.id) {
+              console.log('Found ID in KV cache:', cached.id, cached.name);
+              return res.status(200).json({ ok: true, id: cached.id, name: cached.name || name, locationId: null, website: null, existing: true });
+            }
+          }
+        } catch(e) { console.log('KV lookup failed:', e.message); }
         try {
           const normQ = name.toLowerCase().replace(/\s+/g,'').replace(/gmbh|ag|kg|se/g,'');
           let found = null;
@@ -144,8 +165,11 @@ export default async function handler(req, res) {
         const existing = Array.isArray(rawParsed)
           ? rawParsed.filter(n => typeof n === 'string' && n.length > 3)
           : [];
-        if (!existing.includes(compData.company_name)) {
-          existing.unshift(compData.company_name);
+        // Store as {name, id} objects for future DUPLICATED lookups
+        const newEntry = { name: compData.company_name, id: companyId };
+        const alreadyThere = existing.some(e => (typeof e === 'string' ? e : e?.name) === compData.company_name);
+        if (!alreadyThere) {
+          existing.unshift(newEntry);
           await fetch(`${kvUrl}/set/${encodeURIComponent(KV_KEY)}`, {
             method: 'POST',
             headers: { Authorization: `Bearer ${kvToken}`, 'Content-Type': 'application/json' },
