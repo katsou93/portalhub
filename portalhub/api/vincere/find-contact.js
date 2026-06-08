@@ -248,7 +248,7 @@ function extractHR(text) {
 }
 
 // ── CEO/GF extractor — robust for Impressum ──────────────────────────────
-function extractCEO(rawHtml) { {
+function extractCEO(rawHtml) {
         // Normalize whitespace
   const t = rawHtml.replace(/\s+/g, ' ');
         const patterns = [
