@@ -248,9 +248,9 @@ function extractHR(text) {
 }
 
 // ── CEO/GF extractor — robust for Impressum ──────────────────────────────
-function extractCEO(text) {
+function extractCEO(rawHtml) { {
         // Normalize whitespace
-  const t = text.replace(/\s+/g, ' ');
+  const t = rawHtml.replace(/\s+/g, ' ');
         const patterns = [
                   // "Geschäftsführer: Max Mustermann" or "Geschäftsführerin: Maria Muster"
                   /(?:Geschäftsführer(?:in)?|Inhaber(?:in)?|Vorstand(?:svorsitzende[r]?)?|CEO|Direktor(?:in)?)[\s:,]+([A-ZÄÖÜ][a-zA-ZäöüÄÖÜß\-]{1,20})\s+([A-ZÄÖÜ][a-zA-ZäöüÄÖÜß\-]{1,35})/,
