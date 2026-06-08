@@ -396,12 +396,11 @@ export default async function handler(req, res) {
 
           // CEO from impressum pages
           if (!ceoContact && page.type === 'impressum') {
-                      const ceo = extractCEO(page.text);
+                                      const ceo = extractCEO(page.html || page.text);
                       if (ceo) {
                                     ceoContact = { ...ceo, email: em || null, phone: ph || null, source: 'impressum_ceo', website: base };
                                     console.log('CEO found in impressum:', ceoContact.firstName, ceoContact.lastName);
-                      }
-          }
+                                      
   }
 
   if (hrContact) return res.status(200).json(hrContact);
