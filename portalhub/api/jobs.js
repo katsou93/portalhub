@@ -70,7 +70,7 @@ export default async function handler(req, res) {
                         let lm;
                         while ((lm = linkRe.exec(html)) !== null) {
                                       try {
-                                                      const host = new URL(lm[1]).hostname;
+                                                            const linkRe = /href="(https?:\/\/(?!(?:[\w.]*\.)?(?:arbeitsagentur|bundesagentur|google|facebook|twitter|linkedin|xing|instagram|youtube|whatsapp|datenschutz|impressum)[^a-z])[^"]{10,})"/g;
                                                       if (!extLinks.includes(host)) extLinks.push('https://' + host);
                                       } catch(_) {}
                                       if (extLinks.length >= 3) break;
