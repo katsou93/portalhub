@@ -25,7 +25,7 @@ export default async function handler(req, res) {
         const headers = token
           ? { 'Authorization': 'Bearer ' + token, 'Accept': 'application/json' }
                 : { 'X-API-Key': 'jobboerse-jobsuche', 'User-Agent': 'PortalHub/1.0', 'Accept': 'application/json' };
-        return fetch(url, { headers, signal: AbortSignal.timeout(8000) });
+        return fetch(url, { headers, (()=>{const c=new AbortController();setTimeout(()=>c.abort(),8000);return c.signal;})() });
   }
 
   try {
@@ -68,7 +68,7 @@ export default async function handler(req, res) {
                                 const pageUrl = 'https://www.arbeitsagentur.de/jobsuche/jobdetail/' + encodeURIComponent(refnr);
                                 const pageR = await fetch(pageUrl, {
                                               headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36', 'Accept': 'text/html', 'Accept-Language': 'de-DE,de;q=0.9' },
-                                              signal: AbortSignal.timeout(5000),
+                                              signal: (()=>{const c=new AbortController();setTimeout(()=>c.abort(),5000);return c.signal;})(),
                                 }).catch(() => null);
                                 if (pageR && pageR.ok) {
                                               const html = await pageR.text();
