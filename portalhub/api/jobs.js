@@ -25,7 +25,7 @@ export default async function handler(req, res) {
         const headers = token
           ? { 'Authorization': 'Bearer ' + token, 'Accept': 'application/json' }
                 : { 'X-API-Key': 'jobboerse-jobsuche', 'User-Agent': 'PortalHub/1.0', 'Accept': 'application/json' };
-        return fetch(url, { headers, (()=>{const c=new AbortController();setTimeout(()=>c.abort(),8000);return c.signal;})() });
+            return fetch(url, { headers, signal: (()=>{const c=new AbortController();setTimeout(()=>c.abort(),8000);return c.signal;})() });
   }
 
   try {
