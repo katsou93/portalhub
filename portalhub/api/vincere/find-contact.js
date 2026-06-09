@@ -8,8 +8,7 @@ function normCompany(n) {
             .replace(/\bgmbh\s*&\s*co\.?\s*kg\b|\bgmbh\b|\bag\b|\bse\b|\bkg\b|\bug\b|\bgrp\b|\bgroup\b|\bholding\b/gi, '')
             .replace(/niederlassung\s+\w+/gi, '')
             .replace(/ä/g,'ae').replace(/ö/g,'oe').replace(/ü/g,'ue').replace(/ß/g,'ss')
-            .replace(/[^a-z0-9\s]/g,' ').replace(/\s+/g,'-').replace(/^-+|-+$/g,'');
-}
+if(fc.length>25||ln.length>35)return false; if(/-[a-z]/.test(ln))return false;}
 function cap(s) { return s ? s.trim().split(/\s+/).map(w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase()).join(' ') : ''; }
 function stripHtml(h) { return h.replace(/<script[\s\S]*?<\/script>/gi,'').replace(/<style[\s\S]*?<\/style>/gi,'').replace(/<[^>]+>/g,' ').replace(/&amp;/g,'&').replace(/&nbsp;/g,' ').replace(/&lt;/g,'<').replace(/&gt;/g,'>').replace(/\s+/g,' ').trim(); }
 
