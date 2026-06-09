@@ -47,7 +47,7 @@ function extractCEO(rawHtml) {
           return null;
 }
 
-function extractHR(text) {
+function extractHR(text) {  // Frau/Herr + Name direkt (z.B. in Stellenbeschreibungen)  const frauHerr = text.match(/(?:bei\s+)?(?:Frau|Herr)\s+([A-ZÄÖÜ][a-zA-ZäöüÄÖÜß\-]{1,20})\s+([A-ZÄÖÜ][a-zA-ZäöüÄÖÜß\-]{1,30})/);  if (frauHerr && frauHerr[1] && frauHerr[2]) {    const fn = cap(frauHerr[1]), ln = cap(frauHerr[2]);    if (isRealName(fn, ln)) return { firstName: fn, lastName: ln, position: 'Ansprechpartner/in' };  // Frau/Herr + Name direkt (z.B. in Stellenbeschreibungen)  const frauHerr = text.match(/(?:bei\s+)?(?:Frau|Herr)\s+([A-ZÄÖÜ][a-zA-ZäöüÄÖÜß\-]{1,20})\s+([A-ZÄÖÜ][a-zA-ZäöüÄÖÜß\-]{1,30})/);  if (frauHerr && frauHerr[1] && frauHerr[2]) {  // Frau/Herr + Name direkt (z.B. in Stellenbeschreibungen)
           const pats = [
                       /(?:Ansprechpartner(?:in)?|Ihre?\s+Kontakt(?:person)?|Personalreferent(?:in)?|Recruiter(?:in)?)\s*[:\s]+(?:(?:Dr|Prof)\.\s)?([A-ZÄÖÜ][a-zA-ZäöüÄÖÜß\-]{1,20})\s+([A-ZÄÖÜ][a-zA-ZäöüÄÖÜß\-]{1,30})/,
                       /([A-ZÄÖÜ][a-zA-ZäöüÄÖÜß\-]{1,20})\s+([A-ZÄÖÜ][a-zA-ZäöüÄÖÜß\-]{1,30})[,\-\s]+(?:Personal(?:leiterin?|referentin?|abteilung)?|HR[-\s]?Manager(?:in)?|Recruit(?:er(?:in)?|ing)|Talent)/,
