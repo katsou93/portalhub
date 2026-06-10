@@ -161,7 +161,7 @@ export default async function handler(req, res) {
                       bestEmailFound = upgradeEmail(bestEmailFound, em);
                       if (ph && !bestPhoneFound) bestPhoneFound = ph;
                       if (!hrContact && page.type !== 'impressum') {
-                                    const hr = extractHR(page.text);
+                                    const hr = extractHR(page.text, page.html);
                                     if (hr) { hrContact = {...hr, email:em||null, phone:ph||null, source:'website_'+page.type, website:base}; console.log('HR:', hrContact.firstName, hrContact.lastName); }
                       }
                       if (!ceoContact && page.type === 'impressum') {
