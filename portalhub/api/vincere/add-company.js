@@ -42,7 +42,10 @@ export default async function handler(req, res) {
   }
 
   const h = { 'Content-Type': 'application/json', 'id-token': token, 'x-api-key': apiKey };
-  const { name, city, postcode, website } = req.body || {};
+  const { name, city, postcode, website, address } = req.body || {};
+// Parse full address: 'Monhofer Str. 1, 42697 Solingen'
+let parsedStreet=null,parsedPLZ=postcode||null,parsedCity=city||null;
+if(address){const _am=address.match(/^(.+?),\s*(\d{5})\s+(.+)$/);if(_am){parsedStreet=_am[1].trim();parsedPLZ=_am[2];parsedCity=_am[3].trim();}}
   if (!name) return res.status(400).json({ error: 'name required' });
 
   const today = new Date().toISOString().split('T')[0] + 'T00:00:00.000Z';
@@ -143,7 +146,7 @@ export default async function handler(req, res) {
 
     // Step 3: Add location as company address (correct endpoint)
     let locationId = null;
-    if ((city || postcode) && companyId) {
+    if ((parsedCity || parsedPLZ || parsedStreet) && companyId) {
       const locR = await fetch(`https://${tenant}.vincere.io/api/v2/company/${companyId}/location`, {
         method: 'POST', headers: h,
         body: JSON.stringify({
