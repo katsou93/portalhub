@@ -44,11 +44,11 @@ async function loadVincereCompanies() {
   } catch(e) { return null; }
 }
 
-async function addToVincere(name, city, postcode, website) {
+async function addToVincere(name, city, postcode, website, address) {
   try {
     const r = await fetch('/api/vincere/add-company', {
       method:'POST', headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({name, city, postcode, website})
+      body:JSON.stringify({name, city, postcode, website, address})
     });
     if(!r.ok) return {ok:false, error:'HTTP '+r.status};
     return await r.json();
@@ -80,6 +80,7 @@ async function findContact(name, city, jobText, refnr, website) {
           phone: k.telefonnummer || k.telefon || null,
           position: k.berufsbezeichnung || 'Ansprechpartner/in',
           website: baDetail.arbeitgeberHomepage || website || null,
+      address: contact.address || null,
           jobs: [],
           source: 'bundesagentur',
         };
@@ -616,7 +617,7 @@ export default function App() {
     setAddingId(name);
     try{
       // Step 1: Create company - this MUST work first
-      const compResult = await addToVincere(name, city, postcode, website);
+      const compResult = await addToVincere(name, city, postcode, website, contact?.address||null);
       // If DUPLICATED: company already exists - proceed without company ID
       // add-company.js will try to find the ID via Vincere search API
       if(!compResult?.ok && compResult?.vincereError?.errorCode==='DUPLICATED') {
@@ -661,7 +662,7 @@ export default function App() {
               if(!website && baDetail.arbeitgeberHomepage) website = baDetail.arbeitgeberHomepage;
               if(!jobText && baDetail.stellenbeschreibung) jobText = baDetail.stellenbeschreibung.substring(0,1500);
               if(baDetail.arbeitgeberHomepage && companyId){
-                addToVincere(name, city, postcode, baDetail.arbeitgeberHomepage).catch(()=>{});
+                addToVincere(name, city, postcode, baDetail.arbeitgeberHomepage, null).catch(()=>{});
               }
               // Structured contact from BA API
               if(baDetail.kontaktAngaben){
