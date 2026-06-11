@@ -40,7 +40,7 @@ export default async function handler(req,res){
   const results=await Promise.all(pages.map(p=>fetchPage(p.url).then(r=>r?{...p,...r}:null)));
   let bestEmailFound=null,bestPhoneFound=null,hrContact=null,ceoContact=null;
   for(const page of results){if(!page)continue;const em=bestEmail(page.text);const ph=bestPhone(page.text);bestEmailFound=upgradeEmail(bestEmailFound,em);if(ph&&!bestPhoneFound)bestPhoneFound=ph;if(!hrContact&&page.type!=='impressum'){const hr=extractHR(page.text,page.html);if(hr){hrContact={...hr,email:hr._email||em||null,phone:ph||null,source:'website_'+page.type,website:base,address:null};}}if(!ceoContact&&page.type==='impressum'){const ceo=extractCEO(page.html||page.text);if(ceo){const addr=extractAddress(page.text);ceoContact={...ceo,email:em||null,phone:ph||null,source:'impressum_ceo',website:base,address:addr||null};}}}
-  if(hrContact)return res.status(200).json(hrContact);
+  if(hrContact){if(!hrContact.address&&ceoContact?.address)hrContact.address=ceoContact.address;return res.status(200).json(hrContact);}
   if(ceoContact)return res.status(200).json(ceoContact);
   if(bestEmailFound){const isHR=HR_EMAIL.test(bestEmailFound);return res.status(200).json({...empty,firstName:isHR?'Bewerbung':'Personalabteilung',lastName:name.split(/\s+/)[0],email:bestEmailFound,phone:bestPhoneFound,position:isHR?'HR Bewerbungskontakt':'Ansprechpartner/in',source:'email_fallback',website:base});}
   try{const domain=new URL(base).hostname.replace(/^www\./,'');return res.status(200).json({...empty,firstName:'Bewerbung',lastName:name.split(/\s+/)[0],email:'bewerbung@'+domain,position:'HR Bewerbungskontakt',source:'constructed_email',website:base});}catch(_){}
