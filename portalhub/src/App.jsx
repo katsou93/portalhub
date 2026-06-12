@@ -80,7 +80,7 @@ async function findContact(name, city, jobText, refnr, website) {
           phone: k.telefonnummer || k.telefon || null,
           position: k.berufsbezeichnung || 'Ansprechpartner/in',
           website: baDetail.arbeitgeberHomepage || website || null,
-      address: contact.address || null,
+      address: contact?.address || null,
           jobs: [],
           source: 'bundesagentur',
         };
