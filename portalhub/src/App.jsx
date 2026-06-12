@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback } from "react"; // v2
 
 const C = {
   bg:'#080F1C',bg2:'#0D1626',bg3:'#121E30',bg4:'#172338',
